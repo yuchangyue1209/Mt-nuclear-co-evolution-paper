@@ -1,0 +1,271 @@
+trim
+
+#!/bin/bash
+
+# Set input and output directories and parameters
+INPUT_DIR="/work/cyu/poolseq/raw_data"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/trimmed"
+ADAPTER_REF="/home/cyu/adapters.fa"
+THREADS=48
+
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Loop through all paired R1 and R2 files
+for R1_FILE in "$INPUT_DIR"/*_R1_001.fastq; do
+    # Get the corresponding R2 file
+    R2_FILE="${R1_FILE/_R1_/_R2_}"
+    
+    # Extract the file prefix (e.g., 16_AMO_S16)
+    PREFIX=$(basename "$R1_FILE" | sed 's/_R1_001.fastq//')
+    
+    # Set output file paths
+    OUT_R1="$OUTPUT_DIR/trimmed_R1_${PREFIX}.fastq"
+    OUT_R2="$OUTPUT_DIR/trimmed_R2_${PREFIX}.fastq"
+    LOG_FILE="$OUTPUT_DIR/${PREFIX}_bbduk_log.txt"
+    
+    # Run bbduk.sh
+    bbduk.sh \
+        in1="$R1_FILE" \
+        in2="$R2_FILE" \
+        out1="$OUT_R1" \
+        out2="$OUT_R2" \
+        ref="$ADAPTER_REF" \
+        ktrim=rl \
+        trimq=20 \
+        minlength=25 \
+        ftl=10 \
+        tossbrokenreads=t \
+        threads="$THREADS" > "$LOG_FILE" 2>&1
+done
+
+
+
+map
+
+#!/bin/bash
+
+# 设置输入和输出路径
+TRIMMED_DIR="/work/cyu/poolseq/PPalign_output/trimmed"
+MAPPED_DIR="/work/cyu/PPalign_output/mapped"
+REFERENCE="/work/cyu/chrM_reference"
+
+# 创建输出目录（如果不存在）
+mkdir -p "$MAPPED_DIR"
+
+# 遍历所有 R1 文件，找到对应的 R2 文件
+for R1_FILE in "$TRIMMED_DIR"/trimmed_R1_*.fastq; do
+    # 获取文件的基础名（去掉路径和前缀）
+    BASENAME=$(basename "$R1_FILE" | sed 's/trimmed_R1_//; s/.fastq//')
+    R2_FILE="$TRIMMED_DIR/trimmed_R2_$BASENAME.fastq"
+    
+    # 检查 R2 文件是否存在
+    if [[ -f "$R2_FILE" ]]; then
+        # 输出文件路径
+        SAM_FILE="$MAPPED_DIR/${BASENAME}.sam"
+        LOG_FILE="$MAPPED_DIR/${BASENAME}_bowtie2.log"
+        
+        # 执行映射并保存日志
+        echo "Mapping $BASENAME..."
+        bowtie2 -x "$REFERENCE" \
+            -1 "$R1_FILE" \
+            -2 "$R2_FILE" \
+            -p 48 \
+            --very-sensitive-local \
+            --no-mixed \
+            --no-discordant \
+            -X 2000 \
+            -S "$SAM_FILE" > "$LOG_FILE" 2>&1
+    else
+        echo "Warning: R2 file for $BASENAME not found, skipping." | tee -a "$MAPPED_DIR/mapping_warnings.log"
+    fi
+done
+
+echo "Mapping completed."
+
+
+#convert to bam and index
+#!/bin/bash
+
+# 输入和输出路径
+INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+
+# 遍历所有 SAM 文件
+for SAM_FILE in "${INPUT_DIR}"/*.sam; do
+    # 获取文件名的基名（去掉路径和扩展名）
+    BASENAME=$(basename "$SAM_FILE" .sam)
+    
+    # 设置输出文件路径
+    BAM_FILE="${OUTPUT_DIR}/${BASENAME}_sorted.bam"
+    
+    echo "Processing $SAM_FILE..."
+    
+    # 转换为 BAM 格式，过滤未比对的 reads，然后排序
+    samtools view -Sbu -F 4 "$SAM_FILE" | samtools sort -o "$BAM_FILE" -
+    
+    # 生成 BAM 索引
+    samtools index "$BAM_FILE"
+    
+    echo "Finished processing $SAM_FILE: Sorted BAM and index created."
+done
+
+echo "All SAM files have been processed."
+
+
+
+#coverage
+
+#!/bin/bash
+
+# Input and output directories
+INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+
+# Coverage output directory
+COVERAGE_DIR="/work/cyu/poolseq/PPalign_output/coverage"
+mkdir -p "$COVERAGE_DIR"
+
+# Process all sorted BAM files
+for BAM_FILE in "${OUTPUT_DIR}"/*_sorted.bam; do
+    # Get the basename (removing directory and extension)
+    BASENAME=$(basename "$BAM_FILE" _sorted.bam)
+    
+    # Coverage output file
+    COVERAGE_FILE="${COVERAGE_DIR}/${BASENAME}_coverage.txt"
+    
+    echo "Calculating depth for $BAM_FILE..."
+    
+    # Calculate depth
+    samtools depth "$BAM_FILE" > "$COVERAGE_FILE"
+    
+    echo "Coverage file created: $COVERAGE_FILE"
+done
+
+echo "All sorted BAM files have been processed for depth calculation."
+
+#Picard add groupname
+#!/bin/bash
+
+# Directories
+INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped_with_rg"
+
+# Create the output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Loop through all sorted BAM files
+for BAM_FILE in "${INPUT_DIR}"/*_sorted.bam; do
+    # Get the base name without extension
+    BASENAME=$(basename "$BAM_FILE" _sorted.bam)
+    
+    # Output BAM file path
+    OUTPUT_BAM="${OUTPUT_DIR}/${BASENAME}_rg.bam"
+    
+    # Run Picard AddOrReplaceReadGroups
+    echo "Processing $BAM_FILE..."
+    java -Xmx16g -jar /home/cyu/picard/picard.jar AddOrReplaceReadGroups \
+        -I "$BAM_FILE" \
+        -O "$OUTPUT_BAM" \
+        -RGID "$BASENAME" \
+        -RGLB "$BASENAME" \
+        -RGPL ILLUMINA \
+        -RGPU "${BASENAME}_Unit1" \
+        -RGSM "$BASENAME"
+    
+    echo "Finished processing $BAM_FILE: Read groups added."
+done
+
+echo "All BAM files have been processed."
+
+
+
+#GATK 
+#!/bin/bash
+
+# Directories
+INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped_with_rg"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/realigned"
+REFERENCE="/work/cyu/chrM_reference.fa"
+GATK_JAR="/home/cyu/GenomeAnalysisTK-3.8-1-0-gf15c1c3ef/GenomeAnalysisTK.jar"
+
+# Create the output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Loop through all _rg.bam files
+for BAM_FILE in "${INPUT_DIR}"/*_rg.bam; do
+    # Get the sample name (basename without extension)
+    SAMPLE_NAME=$(basename "$BAM_FILE" _rg.bam)
+    
+    # Define output files
+    INTERVAL_FILE="${OUTPUT_DIR}/${SAMPLE_NAME}.intervals"
+    REALIGNED_BAM="${OUTPUT_DIR}/${SAMPLE_NAME}_realigned.bam"
+    LOG_FILE="${OUTPUT_DIR}/${SAMPLE_NAME}_log.txt"
+    
+    # Step 1: Run RealignerTargetCreator
+    echo "Running RealignerTargetCreator for ${SAMPLE_NAME}..."
+    java -Xmx8g -jar "$GATK_JAR" \
+        -T RealignerTargetCreator \
+        -R "$REFERENCE" \
+        -I "$BAM_FILE" \
+        -o "$INTERVAL_FILE" > "$LOG_FILE" 2>&1
+    
+    # Step 2: Run IndelRealigner
+    echo "Running IndelRealigner for ${SAMPLE_NAME}..."
+    java -Xmx8g -jar "$GATK_JAR" \
+        -T IndelRealigner \
+        -R "$REFERENCE" \
+        -I "$BAM_FILE" \
+        -targetIntervals "$INTERVAL_FILE" \
+        --maxReadsForRealignment 1000000 \
+        -o "$REALIGNED_BAM" >> "$LOG_FILE" 2>&1
+    
+    echo "Finished processing ${SAMPLE_NAME}. Logs saved to $LOG_FILE"
+done
+
+echo "All BAM files have been processed. Logs are saved in $OUTPUT_DIR."
+
+
+
+
+
+
+#list all bam files will be used in freebayes
+ls -1 /work/cyu/poolseq/PPalign_output/realigned/*.bam > /work/cyu/poolseq/PPalign_output/realigned/bamlist.txt
+
+#Freebayes
+freebayes -f /work/cyu/chrM_reference.fa \
+-L /work/cyu/poolseq/PPalign_output/realigned/bamlist.txt \
+-p 1 --use-best-n-alleles 2 \
+--min-repeat-entropy 1 --no-partial-observations \
+--min-alternate-fraction 0 \
+-v /work/cyu/poolseq/PPalign_output/freebayes/all_SNPs.vcf
+
+#Freebayes call varients for each population 
+
+freebayes -f /work/cyu/chrM_reference.fa \
+-L /work/cyu/poolseq/PPalign_output/realigned/bamlist.txt \
+-p 1 --use-best-n-alleles 2 \
+--min-repeat-entropy 1 --no-partial-observations \
+--min-alternate-fraction 0 \
+--pooled-continuous \
+-v /work/cyu/poolseq/PPalign_output/freebayes/2nd_SNPs.vcf \
+> /work/cyu/poolseq/PPalign_output/freebayes/2nd_freebayes.log 2>&1
+
+
+
+
+
+#Add name list for files
+
+
+
+
+#Snp calling
+
+ python /home/cyu/CallHap/CallHap_VCF_Filt.py \
+-i /work/cyu/poolseq/PPalign_output/freebayes/2nd_SNPs.vcf \
+-o {RunID}_d{600}q{20}_Haps.vcf \
+-O {RunID}_d{600}q{20}_Pools.vcf \
+-N 27 -d {600} -q {20} \
+-p /work/cyu/poolseq/PPalign_output/freebayes/poolname.txt --dropLowDepth {300}

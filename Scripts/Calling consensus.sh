@@ -83,6 +83,39 @@ echo "Mapping completed."
 3. Convert mapped sam files to bam and index
 #!/bin/bash
 
+# path
+SAM_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+BAM_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+
+# sam
+for SAM_FILE in "$SAM_DIR"/*.sam; do
+    # name
+    BASENAME=$(basename "$SAM_FILE" .sam)
+    BAM_FILE="$BAM_DIR/${BASENAME}.bam"
+    SORTED_BAM_FILE="$BAM_DIR/${BASENAME}_sorted.bam"
+    # MAPQ ≥ 20 
+    if [[ -f "$SAM_FILE" ]]; then
+        echo "Converting $SAM_FILE to BAM with MAPQ ≥ 20..."
+        samtools view -b -q 20 "$SAM_FILE" > "$BAM_FILE"
+
+        echo "Sorting $BAM_FILE..."
+        samtools sort -o "$SORTED_BAM_FILE" "$BAM_FILE"
+
+
+        echo "Finished processing $BASENAME."
+    else
+        echo "Warning: No SAM files found in $SAM_DIR."
+    fi
+done
+
+echo "Conversion and sorting completed."
+
+
+
+
+4. check depth
+#!/bin/bash
+
 # Define input and output directories
 INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
 DEPTH_OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/depth"
@@ -108,8 +141,6 @@ done
 
 echo "All sorted BAM files have been processed for depth calculation."
 
-
-4. Check the coverage/depth
 
 #!/bin/bash
 

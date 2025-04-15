@@ -1,4 +1,4 @@
-A. #Trim raw_data with bbduk 
+1. #Trim raw_data with bbduk 
 
 #!/bin/bash
 
@@ -113,7 +113,7 @@ echo "Conversion and sorting completed."
 
 
 
-4. check depth
+4. Check depth
 #!/bin/bash
 
 # Define input and output directories
@@ -142,34 +142,7 @@ done
 echo "All sorted BAM files have been processed for depth calculation."
 
 
-#!/bin/bash
-
-# Input and output directories
-INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
-OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
-
-# Coverage output directory
-COVERAGE_DIR="/work/cyu/poolseq/PPalign_output/coverage"
-mkdir -p "$COVERAGE_DIR"
-
-# Process all sorted BAM files
-for BAM_FILE in "${OUTPUT_DIR}"/*_sorted.bam; do
-    # Get the basename (removing directory and extension)
-    BASENAME=$(basename "$BAM_FILE" _sorted.bam)
-    
-    # Coverage output file
-    COVERAGE_FILE="${COVERAGE_DIR}/${BASENAME}_coverage.txt"
-    
-    echo "Calculating depth for $BAM_FILE..."
-    
-    # Calculate depth
-    samtools depth "$BAM_FILE" > "$COVERAGE_FILE"
-    
-    echo "Coverage file created: $COVERAGE_FILE"
-done
-
-echo "All sorted BAM files have been processed for depth calculation."
-6. Piscard add group name
+5. Piscard add group name
 #!/bin/bash
 
 # Directories
@@ -204,7 +177,7 @@ done
 echo "All BAM files have been processed."
 
 
-7. Index group name added files
+6. Index group name added files
 
 #!/bin/bash
 
@@ -226,7 +199,7 @@ done
 echo "All BAM files have been indexed."
 
 
-8.gtak 4.6.1.0
+7.Run the first pipeline for variants calling gtak 4.6.1.0
 #!/bin/bash
 
 # path
@@ -314,7 +287,7 @@ gatk GenotypeGVCFs \
 echo "All done. Final VCF: ${FINAL_VCF}"
 
 
-9. # run bcftools ---2nd pipeline
+8. Run bcftools ---2nd pipeline
 mkdir -p /work/cyu/poolseq/PPalign_output/mtDNA_bam  
 
 MTDNA_ID="MH205729.1"  # right name
@@ -386,7 +359,7 @@ do
   awk -v name="$pop_name" '/^>/{print ">" name; next} {print}' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
 done
 
-10. Intersection
+9. Intersection the variants from 2 pipelines
 
 #!/usr/bin/env bash
 
@@ -438,7 +411,7 @@ done
 
 echo "All isec done. Check results in $OUT_DIR"
 
-11. Filter and qc
+10. Filter and qc
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -498,7 +471,7 @@ done
 echo "All overlap VCF files have been saved in: $OVERLAP_DIR"
 
 
-12. header
+11. Change header
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -525,13 +498,13 @@ echo "All consensus headers have been renamed."
 # Concatenate all consensus FASTA files into a single file
 cat /work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/*.fasta > /work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/all_mt_overlap.fasta
 
-13. align
+12. Realignment
 mafft --auto all_mt_overlap.fasta > aligned_mt_overlap.fasta
 
-14. tree
+13. IQtree
 iqtree -s aligned_mt_overlap.fasta -m GTR+G -nt AUTO
 
-15. trans to nex FORMAT 
+14. Prep for Popart trans fasta to nexus FORMAT 
 from Bio import SeqIO
 
 def fasta_to_nexus(input_fasta, output_nexus):
@@ -582,4 +555,90 @@ fasta_to_nexus(input_fasta, output_nexus)
 
 print(f"✅ Nexus file created: {output_nexus}")
 
+
+15. Stat for SNPs in 4 steps
+#!/usr/bin/env bash
+set -euo pipefail
+
+#path
+BCF_VCF_DIR="/work/cyu/poolseq/PPalign_output/vcf"             # bcftools 
+GATK_VCF_DIR="/work/cyu/poolseq/PPalign_output/gatk4_vcf/single_sample_vcf"  # GATK 
+OUT_DIR="/work/cyu/poolseq/PPalign_output/compare_results"             # output intersection
+FILTER_DIR="/work/cyu/poolseq/PPalign_output/overlap.vcf"              # after filtering
+
+# output files for stat
+OUTPUT_FILE="${OUT_DIR}/snp_stats.txt"
+
+# header
+echo -e "Sample\tGATK_SNP_count\tBCF_SNP_count\tOverlap_SNP_count\tAfterfilter_SNP_count" > "$OUTPUT_FILE"
+
+# for all *_mtDNA_run2.vcf.gz
+for bcf_vcf in "$BCF_VCF_DIR"/*_mtDNA.vcf.gz; do
+    # extract name "10_THE_mtDNA_run2.vcf.gz" → "10_THE"
+    sample=$(basename "$bcf_vcf" _mtDNA.vcf.gz)
+    
+    # stat bcftools SNP number（withour header）
+    bcf_count=$(zcat "$bcf_vcf" | grep -v "^#" | wc -l)
+    
+    #  GATK VCF path "<sample>_final.vcf.gz"
+    gatk_vcf="${GATK_VCF_DIR}/${sample}_final.vcf.gz"
+    if [ ! -f "$gatk_vcf" ]; then
+        echo "Warning: GATK VCF not found for sample $sample at $gatk_vcf, skipping..."
+        continue
+    fi
+    gatk_count=$(zcat "$gatk_vcf" | grep -v "^#" | wc -l)
+    
+    # output）
+    sample_isec_dir="${OUT_DIR}/${sample}_isec"
+    mkdir -p "$sample_isec_dir"
+    
+    # bcftools isec  (0002.vcf.gz)
+    if [ ! -f "${sample_isec_dir}/0002.vcf.gz" ]; then
+        bcftools isec \
+          "$bcf_vcf" \
+          "$gatk_vcf" \
+          -p "$sample_isec_dir" \
+          -Oz
+    fi
+    
+    #  SNP number
+    if [ -f "${sample_isec_dir}/0002.vcf.gz" ]; then
+        overlap_count=$(zcat "${sample_isec_dir}/0002.vcf.gz" | grep -v "^#" | wc -l)
+    else
+        overlap_count=0
+    fi
+    
+    # FILTER_DIR  VCF  SNP number
+    # path "<sample>_overlap.vcf.gz"
+    filtered_vcf="${FILTER_DIR}/${sample}_overlap.vcf.gz"
+    if [ -f "$filtered_vcf" ]; then
+        filtered_count=$(zcat "$filtered_vcf" | grep -v "^#" | wc -l)
+    else
+        filtered_count=0
+    fi
+
+    # output
+    echo -e "${sample}\t${gatk_count}\t${bcf_count}\t${overlap_count}\t${filtered_count}" >> "$OUTPUT_FILE"
+done
+
+echo "All sample comparisons done. Results have been saved in: $OUTPUT_FILE"
+
+
+
+16. Check numts contamination
+/work/cyu/poolparty/stickleback_v5_assembly_no_chrM.fa
+
+makeblastdb -in stickleback_v5_assembly_no_chrM.fa -dbtype nucl -out nuclear_genome_no_chrM
+mkdir -p /work/cyu/poolseq/PPalign_output/blast_results
+
+for f in /work/cyu/poolseq/PPalign_output/direct_consensus/*_mtDNA_consensus.fasta
+do
+  sample=$(basename "$f" "_mtDNA_consensus.fasta")
+  
+  echo "Running BLAST for: $sample"
+
+  blastn -query "$f" -db nuclear_genome_no_chrM -outfmt 6 \
+  -out /work/cyu/poolseq/PPalign_output/blast_results/${sample}_blast.txt
+done
+/work/cyu/poolseq/PPalign_output/blast_results/
 

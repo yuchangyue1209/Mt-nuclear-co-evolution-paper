@@ -1,4 +1,4 @@
-1. #Trim raw_data with bbduk 
+1. #Trim raw_data with bbduk 38.9
 
 #!/bin/bash
 
@@ -39,7 +39,13 @@ for R1_FILE in "$INPUT_DIR"/*_R1_001.fastq; do
         threads="$THREADS" > "$LOG_FILE" 2>&1
 done
 
-2. Map trimmed data to reference mt genome with bowtie2
+for r1 in /work/cyu/poolseq/PPalign_output/trimmed/trimmed_R1_*.fastq; do
+    r2="${r1/R1/R2}"
+    fastqc "$r1" "$r2" -o /work/cyu/poolseq/PPalign_output/quality_after_trim/
+done
+
+
+2. Map trimmed data to reference mt genome with bowtie2.5.4
 
 #!/bin/bash
 # Set input and output paths
@@ -80,7 +86,7 @@ done
 
 echo "Mapping completed."
 
-3. Convert mapped sam files to bam and index
+3. Convert mapped sam files to bam files and index them
 #!/bin/bash
 
 # path
@@ -112,8 +118,7 @@ echo "Conversion and sorting completed."
 
 
 
-
-4. Check depth
+4. Check the mapping quality: depth for each site
 #!/bin/bash
 
 # Define input and output directories
@@ -142,7 +147,40 @@ done
 echo "All sorted BAM files have been processed for depth calculation."
 
 
-5. Piscard add group name
+5. Piscard mark and de duplicates java17 I didn't run since data type--- mt is special！But for nuclear poolseq analysis, this step is requied
+#!/bin/bash
+
+# Directories
+INPUT_DIR="/work/cyu/poolseq/PPalign_output/mapped"
+OUTPUT_DIR="/work/cyu/poolseq/PPalign_output/marked_duplicates"
+
+# Create the output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Loop through all sorted BAM files
+for BAM_FILE in "${INPUT_DIR}"/*_sorted.bam; do
+    # Get the base name without extension
+    BASENAME=$(basename "$BAM_FILE" _sorted.bam)
+    
+    # Output BAM file path for the marked duplicates
+    OUTPUT_BAM="${OUTPUT_DIR}/${BASENAME}_marked_duplicates.bam"
+    
+    # Run Picard MarkDuplicates
+    echo "Processing $BAM_FILE..."
+    picard MarkDuplicates \
+        I="$BAM_FILE" \
+        O="$OUTPUT_BAM" \
+        M="${OUTPUT_DIR}/${BASENAME}_metrics.txt" \
+        REMOVE_DUPLICATES=true
+    
+    echo "Finished processing $BAM_FILE: Duplicates marked."
+done
+
+echo "All BAM files have been processed"
+
+
+
+6. Piscard add group name
 #!/bin/bash
 
 # Directories
@@ -177,7 +215,7 @@ done
 echo "All BAM files have been processed."
 
 
-6. Index group name added files
+7. Index group name added files
 
 #!/bin/bash
 
@@ -199,7 +237,7 @@ done
 echo "All BAM files have been indexed."
 
 
-7.Run the first pipeline for variants calling gtak 4.6.1.0
+8.gtak 4.6.1.0
 #!/bin/bash
 
 # path
@@ -287,7 +325,7 @@ gatk GenotypeGVCFs \
 echo "All done. Final VCF: ${FINAL_VCF}"
 
 
-8. Run bcftools ---2nd pipeline
+9. # Run bcftools ---this is 2nd pipeline for variants calling 
 mkdir -p /work/cyu/poolseq/PPalign_output/mtDNA_bam  
 
 MTDNA_ID="MH205729.1"  # right name
@@ -314,6 +352,7 @@ do
   sample=$(basename "$f" "_mtDNA.bam")
 
   echo "Calling variants for (haploid mode): $sample"
+
   # 1. mpileup call variants
   bcftools mpileup -Ou -f "$REFERENCE" -d 5000 \
     --annotate FORMAT/DP,FORMAT/AD,FORMAT/ADF,FORMAT/ADR,FORMAT/SP \
@@ -333,6 +372,9 @@ do
   # 4. Index VCF
   bcftools index /work/cyu/poolseq/PPalign_output/vcf/${sample}_mtDNA.vcf.gz
 done
+
+
+
 
 mkdir -p /work/cyu/poolseq/PPalign_output/direct_consensus
 
@@ -359,38 +401,38 @@ do
   awk -v name="$pop_name" '/^>/{print ">" name; next} {print}' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
 done
 
-9. Intersection the variants from 2 pipelines
 
+
+10. After running these two standard pipeline, intersect the results
+_mtDNA_run2.vcf.gz
 #!/usr/bin/env bash
 
-# ============== Configuration ==============
-BCF_VCF_DIR="/work/cyu/poolseq/PPalign_output/vcf"             # Directory containing bcftools VCF files
-GATK_VCF_DIR="/work/cyu/poolseq/PPalign_output/gatk4_vcf/single_sample_vcf"  # Directory containing GATK VCF files
-OUT_DIR="/work/cyu/poolseq/PPalign_output/compare_results"     # Output directory for intersection results
+BCF_VCF_DIR="/work/cyu/poolseq/PPalign_output/vcf"             # bcftools vcf
+GATK_VCF_DIR="/work/cyu/poolseq/PPalign_output/gatk4_vcf/single_sample_vcf"  # GATK vcf
+OUT_DIR="/work/cyu/poolseq/PPalign_output/compare_results"     # output path
 
 mkdir -p "$OUT_DIR"
 
-# ============== Execution ==============
-# Iterate over *_mtDNA.vcf.gz files in the bcftools directory
+#  bcftools *_mtDNA.vcf.gz 
 for bcftools_vcf in "$BCF_VCF_DIR"/*_mtDNA.vcf.gz
 do
-    # If no matching files are found, skip
+    # exit if no vcf
     [ -e "$bcftools_vcf" ] || { echo "No bcftools VCF found in $BCF_VCF_DIR"; exit 0; }
 
-    # Extract sample name (remove _mtDNA.vcf.gz)
-    fname=$(basename "$bcftools_vcf")   # e.g., 10_THE_mtDNA.vcf.gz
-    sample="${fname%_mtDNA.vcf.gz}"     # e.g., 10_THE
+    # extract sample name ( _mtDNA.vcf.gz)
+    fname=$(basename "$bcftools_vcf")   #  10_THE_mtDNA.vcf.gz
+    sample="${fname%_mtDNA.vcf.gz}"     #  10_THE
 
-    # Construct corresponding GATK VCF path
+    # build path
     gatk_vcf="${GATK_VCF_DIR}/${sample}_final.vcf.gz"
 
-    # If the corresponding GATK file is not found, skip
+    # exit if no gatk vcf
     if [ ! -f "$gatk_vcf" ]; then
         echo "[WARNING] GATK VCF not found for sample $sample at $gatk_vcf, skipping..."
         continue
     fi
 
-    # Define output directory: e.g., /.../compare_results/10_THE_isec
+    # output path： e.g. /.../compare_results/10_THE_isec
     outdir="${OUT_DIR}/${sample}_isec"
     mkdir -p "$outdir"
 
@@ -399,7 +441,7 @@ do
     echo "  GATK VCF:     $gatk_vcf"
     echo "  Output Dir:   $outdir"
 
-    # Execute bcftools isec 
+    # bcftools isec 
     bcftools isec \
       "$bcftools_vcf" \
       "$gatk_vcf" \
@@ -411,34 +453,34 @@ done
 
 echo "All isec done. Check results in $OUT_DIR"
 
-10. Filter and qc
+
+
+11. Filter and QC
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ============== Configuration ==============
 COMPARE_OUT_DIR="/work/cyu/poolseq/PPalign_output/compare_results"
 OVERLAP_DIR="/work/cyu/poolseq/PPalign_output/overlap.vcf"
 mkdir -p "$OVERLAP_DIR"
 
-# Filtering parameters (for single samples, using --minDP and --maxDP)
+# filter parameters --minDP &--maxDP
 MIN_DP=10
 MAX_DP=5000
 MAX_MISSING=1
 MINQ=30
 
-# ============== Execution ==============
-# Iterate over all *_isec directories in the compare results directory
+# for all compare  *_isec 
 for sample_dir in "$COMPARE_OUT_DIR"/*_isec; do
-    # Extract sample name, e.g., 10_THE_isec -> 10_THE
+    # extract sample name 10_THE_isec -> 10_THE
     sample=$(basename "$sample_dir" _isec)
     
-    # Define the intersection file path
+    # intersection path defined
     intersection_file="${sample_dir}/0002.vcf.gz"
     
     if [ -f "$intersection_file" ]; then
         echo "Processing sample: $sample"
         
-        # Filter the intersection file and output it to OVERLAP_DIR with prefix <sample>_filtered
+        # filter intersection files to output path *_filtered
         vcftools --gzvcf "$intersection_file" \
           --minDP "$MIN_DP" \
           --maxDP "$MAX_DP" \
@@ -447,15 +489,15 @@ for sample_dir in "$COMPARE_OUT_DIR"/*_isec; do
           --recode --recode-INFO-all \
           --out "${OVERLAP_DIR}/${sample}_filtered"
         
-        # The filtered file will be named ${sample}_filtered.recode.vcf
+        # vcftools filtered file: ${sample}_filtered.recode.vcf
         filtered_vcf="${OVERLAP_DIR}/${sample}_filtered.recode.vcf"
         
         if [ -f "$filtered_vcf" ]; then
-            # Compress the filtered VCF and rename it to <sample>_overlap.vcf.gz
+            # rename <sample>_overlap.vcf.gz
             bgzip -c "$filtered_vcf" > "${OVERLAP_DIR}/${sample}_overlap.vcf.gz"
             bcftools index -f "${OVERLAP_DIR}/${sample}_overlap.vcf.gz"
             echo "  => Overlap VCF saved as: ${OVERLAP_DIR}/${sample}_overlap.vcf.gz"
-            # Optionally delete intermediate files
+            # delete 
             rm "$filtered_vcf"
             rm "${OVERLAP_DIR}/${sample}_filtered.log" 2>/dev/null || true
         else
@@ -471,40 +513,75 @@ done
 echo "All overlap VCF files have been saved in: $OVERLAP_DIR"
 
 
-11. Change header
+
+#indel check：no indels
+bcftools merge --force-samples /work/cyu/poolseq/PPalign_output/overlap.vcf/*.vcf.gz -Oz -o /work/cyu/poolseq/PPalign_output/indel_regions/all_samples_merged.vcf.gz
+tabix -p vcf /work/cyu/poolseq/PPalign_output/indel_regions/all_samples_merged.vcf.gz
+(poolseq_env) cyu@stickleback:~$ bcftools view -v indels -Oz -o /work/cyu/poolseq/PPalign_output/indel_regions/all_samples_indels.vcf.gz \
+/work/cyu/poolseq/PPalign_output/indel_regions/all_samples_merged.vcf.gz
+(poolseq_env) cyu@stickleback:~$ bcftools query -l /work/cyu/poolseq/PPalign_output/indel_regions/all_samples_indels.vcf.gz
+
+
+
+12. Call consensus for intersection snps from 2 pipelines
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Define the directory containing consensus files
+# path
+OVERLAP_DIR="/work/cyu/poolseq/PPalign_output/overlap.vcf"
+REFERENCE="/work/cyu/sequence.fasta"
+CONSENSUS_DIR="${OVERLAP_DIR}/consensus"
+mkdir -p "$CONSENSUS_DIR"
+
+# for all *_overlap.vcf.gz 
+for vcf in "$OVERLAP_DIR"/*_overlap.vcf.gz; do
+    [ -e "$vcf" ] || { echo "No overlap VCF files found in $OVERLAP_DIR"; exit 0; }
+    sample=$(basename "$vcf" _overlap.vcf.gz)
+    echo "Generating consensus for sample: $sample"
+  # bcftools consensus calling
+    bcftools consensus -f "$REFERENCE" "$vcf" > "${CONSENSUS_DIR}/${sample}_consensus.fasta"
+    
+    echo "  => Consensus sequence saved to ${CONSENSUS_DIR}/${sample}_consensus.fasta"
+done
+
+echo "All consensus sequences have been generated in: $CONSENSUS_DIR"
+
+
+
+
+12. Change header and combine the fasta files 
+#!/usr/bin/env bash
+set -euo pipefail
+
 CONSENSUS_DIR="/work/cyu/poolseq/PPalign_output/overlap.vcf/consensus"
 
-# Iterate over all *_consensus.fasta files in the directory
 for f in "$CONSENSUS_DIR"/*_consensus.fasta; do
     [ -e "$f" ] || { echo "No consensus files found in $CONSENSUS_DIR"; exit 0; }
     
-    # Extract the sample name, e.g., "10_THE_consensus.fasta" -> "10_THE"
+    # extract name "10_THE_consensus.fasta" -> "10_THE"
     sample=$(basename "$f" _consensus.fasta)
-    # Extract the population name, using "_" as the delimiter and taking the second field, e.g., "10_THE" -> "THE"
+    # "10_THE" -> "THE"
     pop_name=$(echo "$sample" | cut -d'_' -f2)
     
     echo "Renaming header for sample: $sample → $pop_name"
     
-    # Use awk to replace the FASTA header, only modifying the first line (starting with ">") to ">$pop_name"
+    # replace FASTA header to ">$pop_name"
     awk -v name="$pop_name" '/^>/{print ">" name; next} {print}' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
 done
 
 echo "All consensus headers have been renamed."
 
-# Concatenate all consensus FASTA files into a single file
+#Merge the files into one fasta
 cat /work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/*.fasta > /work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/all_mt_overlap.fasta
 
-12. Realignment
+13. Realignment
 mafft --auto all_mt_overlap.fasta > aligned_mt_overlap.fasta
 
-13. IQtree
+14. IQtree 
 iqtree -s aligned_mt_overlap.fasta -m GTR+G -nt AUTO
 
-14. Prep for Popart trans fasta to nexus FORMAT 
+15. Covert nexus format for popart
+#nexus
 from Bio import SeqIO
 
 def fasta_to_nexus(input_fasta, output_nexus):
@@ -513,50 +590,50 @@ def fasta_to_nexus(input_fasta, output_nexus):
     Ensures all sequences have the same length.
     """
 
-    # Read the FASTA file
+    # fasta
     sequences = list(SeqIO.parse(input_fasta, "fasta"))
     
-    # Ensure all sequences have the same length
+    # same length
     seq_lengths = {len(seq.seq) for seq in sequences}
     if len(seq_lengths) > 1:
         raise ValueError("Error: Sequences have different lengths. Alignment is required.")
 
-    n_tax = len(sequences)  # Number of taxa
-    n_char = len(sequences[0].seq)  # Sequence length
+    n_tax = len(sequences)  
+    n_char = len(sequences[0].seq)  
 
-    # Write to NEXUS file
+    #  NEXUS 
     with open(output_nexus, "w") as nexus:
-        # NEXUS header
+        # NEXUS head
         nexus.write("#NEXUS\n\n")
 
-        # TAXA block (defining samples)
+        # TAXA 
         nexus.write("BEGIN TAXA;\n")
         nexus.write(f"  DIMENSIONS NTAX={n_tax};\n")
         nexus.write("  TAXLABELS\n")
         for seq in sequences:
-            nexus.write(f"    {seq.id}\n")  # Sample name
+            nexus.write(f"    {seq.id}\n")  # sample name
         nexus.write("  ;\nEND;\n\n")
 
-        # CHARACTERS block (defining sequences)
+        # CHARACTERS 
         nexus.write("BEGIN CHARACTERS;\n")
         nexus.write(f"  DIMENSIONS NCHAR={n_char};\n")
         nexus.write("  FORMAT DATATYPE=DNA MISSING=? GAP=-;\n")
         nexus.write("  MATRIX\n")
         for seq in sequences:
-            nexus.write(f"    {seq.id} {str(seq.seq)}\n")  # Sample name + sequence
+            nexus.write(f"    {seq.id} {str(seq.seq)}\n")  
         nexus.write("  ;\nEND;\n")
 
-# Set input & output file paths
+# path
 input_fasta = "/work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/aligned_mt_overlap.fasta"
 output_nexus = "/work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/aligned_mt_overlap.nex"
 
-# Run conversion
+
 fasta_to_nexus(input_fasta, output_nexus)
 
 print(f"✅ Nexus file created: {output_nexus}")
 
 
-15. Stat for SNPs in 4 steps
+16. Stat for SNPs in 4 steps
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -625,7 +702,7 @@ echo "All sample comparisons done. Results have been saved in: $OUTPUT_FILE"
 
 
 
-16. Check numts contamination
+17. Check numts contamination
 /work/cyu/poolparty/stickleback_v5_assembly_no_chrM.fa
 
 makeblastdb -in stickleback_v5_assembly_no_chrM.fa -dbtype nucl -out nuclear_genome_no_chrM
@@ -641,4 +718,6 @@ do
   -out /work/cyu/poolseq/PPalign_output/blast_results/${sample}_blast.txt
 done
 /work/cyu/poolseq/PPalign_output/blast_results/
+
+
 

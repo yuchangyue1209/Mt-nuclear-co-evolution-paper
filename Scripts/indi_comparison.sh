@@ -154,13 +154,13 @@ cd /mnt/spareHD_2/AK_bam/consensus_individual_mt
 
 cat *_consensus.fasta > all_consensus_merged.fasta
 cat *_consensus.fasta > all_consensus_merged_allpoolseq.fasta
-
+cat all_consensus_merged_allpoolseq.fasta JS_male_hap1.v20240517.chrM.fa > all_consensus_indi_japan.fasta
 # Alignment
 mafft --auto all_consensus_merged.fasta > aligned_WT.fasta
 mafft --auto all_consensus_merged_allpoolseq.fasta > aligned_WT_merged_allpoolseq.fasta
-
+mafft --auto all_consensus_indi_japan.fasta > aligned_all_consensus_indi_japan.fasta
 # Tree inference
 iqtree -s aligned_WT.fasta -m MFP -bb 1000 -nt AUTO -pre WT_mtDNA_tree
 iqtree -s aligned_WT_merged_allpoolseq.fasta -m MFP -bb 1000 -nt AUTO -pre WT_allpoolseq_mtDNA_tree
-
+iqtree -s aligned_all_consensus_indi_japan.fasta -m MFP -bb 1000 -nt AUTO -pre WT_allpoolseq_japan_mtDNA_tree
 

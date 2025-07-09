@@ -14,10 +14,6 @@ iqtree -s mc_aligned_mt_overlap.fasta -m GTR+G -bb 1000 -alrt 1000 -nt AUTO
 /home/cyu/snpEff/data/Gasterosteus_aculeatus_MT/genes.gff
 
 
-
-
-
-
 #去掉参考
 from pathlib import Path
 ref = "MH205729.1"
@@ -359,4 +355,50 @@ sed -i "s|^outfile = .*|outfile = ATP6_m0.out|" ATP8_m0.ctl
 sed -i "s|^model = .*|model = 0|" ATP8_m0.ctl
 codeml ATP8_m0.ctl
 
+#complex
+# concat_codon.py
+from Bio import AlignIO
+from Bio.Align import MultipleSeqAlignment
+import os, glob
+
+codon_dir = "/work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/codon"
+os.chdir(codon_dir)
+
+complexes = {
+    "ComplexI":  ["ND1", "ND2", "ND3", "ND4", "ND4L", "ND5", "ND6"],
+    "ComplexIII": ["CYTB"],
+    "ComplexIV": ["COX1", "COX2", "COX3"],
+    "ComplexV":  ["ATP6", "ATP8"]
+}
+
+for cname, genes in complexes.items():
+    concat = {}
+    ids = None
+    for gene in genes:
+        aln = AlignIO.read(f"{gene}_codon_fixed.phy", "phylip")
+        if ids is None:
+            ids = [rec.id for rec in aln]
+            concat = {rec.id: "" for rec in aln}
+        for rec in aln:
+            concat[rec.id] += str(rec.seq)
+    # format PHYLIP sequential
+    out_file = f"{cname}_codon_concat.phy"
+    with open(out_file, "w") as f:
+        f.write(f"{len(ids)} {len(next(iter(concat.values())))}\n")
+        for i in ids:
+            f.write(f"{i.ljust(10)} {concat[i]}\n")
+    print(f"✅ Written {out_file}")
+
+
+cp codeml.ctl ComplexI_branch.ctl
+sed -i "s|^seqfile = .*|seqfile = ComplexI_codon_concat.phy|" ComplexI_branch.ctl
+sed -i "s|^outfile = .*|outfile = ComplexI_branch.out|" ComplexI_branch.ctl
+codeml ComplexI_branch.ctl
+
+
+cp codeml.ctl ComplexI_m0.ctl
+sed -i "s|^seqfile = .*|seqfile = ComplexI_codon_concat.phy|" ComplexI_m0.ctl
+sed -i "s|^outfile = .*|outfile = ComplexI_m0.out|" ComplexI_m0.ctl
+sed -i "s|^model = .*|model = 0|" ComplexI_m0.ctl
+codeml ComplexI_m0.ctl
 

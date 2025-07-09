@@ -110,3 +110,194 @@ done
 
 echo "🎉 All samples mapped, filtered, sorted, and indexed."
 
+
+
+#Step3 dedup
+#dedup
+export JAVA_HOME=/home/cyu/jdk-17.0.12
+export PATH=$JAVA_HOME/bin:$PATH
+
+#!/bin/bash
+
+# Directories
+INPUT_DIR="/mnt/spareHD_2/nuclear_sorted_bam_poolseq"
+OUTPUT_DIR="/mnt/spareHD_2/nuclear_marked_duplicates"
+
+# Create the output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Loop through all sorted BAM files
+for BAM_FILE in "$INPUT_DIR"/*_sorted.bam; do
+    BASENAME=$(basename "$BAM_FILE" _sorted.bam)
+    OUTPUT_BAM="${OUTPUT_DIR}/${BASENAME}_dedup.bam"
+    METRICS_FILE="${OUTPUT_DIR}/${BASENAME}_metrics.txt"
+    LOG_FILE="${OUTPUT_DIR}/${BASENAME}_picard.log"
+
+    echo "🧹 Marking duplicates for $BASENAME..."
+
+    picard MarkDuplicates \
+        I="$BAM_FILE" \
+        O="$OUTPUT_BAM" \
+        M="$METRICS_FILE" \
+        REMOVE_DUPLICATES=true \
+        ASSUME_SORTED=true \
+        VALIDATION_STRINGENCY=LENIENT > "$LOG_FILE" 2>&1
+
+    echo "✅ Done: $OUTPUT_BAM"
+done
+
+echo "🎉 All BAM files deduplicated."
+
+
+#step4 add groupnames with picard
+
+#!/bin/bash
+
+# Step 4: Add or replace read groups
+INPUT_DIR="/mnt/spareHD_2/nuclear_marked_duplicates"
+OUTPUT_DIR="/mnt/spareHD_2/nuclear_with_readgroups"
+mkdir -p "$OUTPUT_DIR"
+
+for BAM_FILE in "$INPUT_DIR"/*_dedup.bam; do
+    BASENAME=$(basename "$BAM_FILE" _dedup.bam)    # e.g. 3_SR_S3
+    PREFIX=$(echo "$BASENAME" | cut -d '_' -f1,2)   # e.g. 3_SR
+
+    OUTPUT_BAM="${OUTPUT_DIR}/${PREFIX}_rg.bam"
+
+    echo "📌 Adding RG for $PREFIX..."
+
+    java -Xmx16g -jar /home/cyu/picard/picard.jar AddOrReplaceReadGroups \
+        I="$BAM_FILE" \
+        O="$OUTPUT_BAM" \
+        RGID="$PREFIX" \
+        RGLB="$PREFIX" \
+        RGPL=ILLUMINA \
+        RGPU="${PREFIX}_Unit1" \
+        RGSM="$PREFIX" \
+        VALIDATION_STRINGENCY=LENIENT
+
+    echo "✅ RG added: $OUTPUT_BAM"
+done
+
+echo "🎯 Step 4 done: All BAM files have read groups added."
+
+#!/bin/bash
+
+# Step 5: Index BAM files
+INPUT_DIR="/mnt/spareHD_2/nuclear_with_readgroups"
+
+for BAM_FILE in "$INPUT_DIR"/*_rg.bam; do
+    echo "🧬 Indexing $(basename "$BAM_FILE")..."
+    samtools index "$BAM_FILE"
+    echo "✅ Indexed: $(basename "$BAM_FILE")"
+done
+
+echo "🎉 Step 5 done: All BAM files indexed."
+
+
+
+#Step 6   gtak 4.6.1.0
+#!/bin/bash
+
+# path
+POOL_INFO="/work/cyu/poolseq/pool_info.txt"
+INPUT_DIR="/mnt/spareHD_2/nuclear_with_readgroups"   
+OUTPUT_DIR="/mnt/spareHD_2/gatk4_vcf"        
+REFERENCE="/work/cyu/stickleback_nuclear_only.fa"                            
+
+mkdir -p "$OUTPUT_DIR"
+
+# except the header
+tail -n +2 "$POOL_INFO" | while read -r SAMPLE SIZE; do
+    # only numbers 
+    CLEAN_SIZE=$(echo "$SIZE" | tr -cd '0-9')
+    
+    if [ -z "$CLEAN_SIZE" ]; then
+        echo "Warning: For sample $SAMPLE, extracted pool size is empty. Skipping."
+        continue
+    fi
+
+    # path
+    BAM_FILE="${INPUT_DIR}/${SAMPLE}_rg.bam"
+    if [ ! -f "$BAM_FILE" ]; then
+        echo "Warning: BAM file not found for sample $SAMPLE at $BAM_FILE. Skipping."
+        continue
+    fi
+
+    echo "Processing sample $SAMPLE with pool size $CLEAN_SIZE..."
+    
+    #  GATK HaplotypeCaller，generate GVCF files for populations
+    gatk HaplotypeCaller \
+      -R "$REFERENCE" \
+      -I "$BAM_FILE" \
+      -O "${OUTPUT_DIR}/${SAMPLE}.g.vcf.gz" \
+      -ERC GVCF \
+      --ploidy "$CLEAN_SIZE" \
+      --minimum-mapping-quality 20 \
+      -mbq 13 \
+      --indel-size-to-eliminate-in-ref-model 12 \
+      -G AS_StandardAnnotation \
+      -G StandardAnnotation \
+      --sample-name "$SAMPLE"
+
+    if [ $? -ne 0 ]; then
+        echo "Error processing sample $SAMPLE" >&2
+        continue
+    fi
+
+    echo "Finished processing sample $SAMPLE"
+done
+
+echo "All samples processed."
+
+#genotype 
+#!/usr/bin/env bash
+
+REFERENCE="/work/cyu/sequence.fasta"
+GVCF_DIR="/work/cyu/poolseq/PPalign_output/gatk4_vcf"
+SAMPLE_MAP="${GVCF_DIR}/sample_map_fixed.txt"
+GENOMICSDB_WORKSPACE="${GVCF_DIR}/genomicsdb_workspace"
+FINAL_VCF="${GVCF_DIR}/all_samples_genotyped.vcf.gz"
+INTERVAL="MH205729.1"
+
+echo "=== Step 1: GenomicsDBImport ==="
+gatk GenomicsDBImport \
+  --sample-name-map "${SAMPLE_MAP}" \
+  --genomicsdb-workspace-path "${GENOMICSDB_WORKSPACE}" \
+  -L "${INTERVAL}" \
+  --genomicsdb-vcf-buffer-size 1048576 \
+  --tmp-dir /tmp \
+  --reader-threads 4
+
+if [ $? -ne 0 ]; then
+  echo "[ERROR] GenomicsDBImport failed!"
+  exit 1
+fi
+
+echo "=== Step 2: GenotypeGVCFs ==="
+gatk GenotypeGVCFs \
+  -R "${REFERENCE}" \
+  -V "gendb://${GENOMICSDB_WORKSPACE}" \
+  -O "${FINAL_VCF}" \
+  --tmp-dir /tmp
+
+echo "All done. Final VCF: ${FINAL_VCF}"
+
+
+
+
+1.#create bam.list
+ls -1 /mnt/spareHD_2/nuclear_marked_duplicates/*.bam > /mnt/spareHD_2/nuclear_marked_duplicates/bamlist.txt
+
+# merge BAM files (in the order of the file paths in BAMlist.txt) in a MPILEUP file only retaining nucleotides with BQ >20 and reads with MQ > 20
+samtools mpileup -B \
+    -f /work/cyu/stickleback_nuclear_only.fa \
+    -b bamlist.txt \
+    -q 30 \
+    -Q 30 \
+    -d 5000 \
+    | gzip > crispr.mpileup.gz
+
+gunzip /mnt/spareHD_2/marked_duplicates/crispr.mpileup.gz
+
+

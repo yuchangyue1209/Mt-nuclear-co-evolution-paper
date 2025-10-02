@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------------------------
+# Config（按需修改）
+# ---------------------------
+REF="/work/cyu/stickleback_nuclear_only.fa"
+BED="/work/cyu/oxphos_from_ref_no_biomart/06_igv/cds_union.by_gene_chrkey.bed"  # 4列；第4列形如 gene 或 gene@chr
+POOLS="/work/cyu/poolseq/pool_info.txt"                                        # 至少有表头和 PoolName 列
+BAMDIR="/mnt/spareHD_2/nuclear_with_readgroups"                                # 存在 ${SAMPLE}_rg.bam
+OUTDIR="/work/cyu/oxphos_from_ref_no_biomart/06_igv/cnv_qc_unionCDS"           # 输出目录
+PY_BUILD="/work/cyu/oxphos_from_ref_no_biomart/06_igv/build_gene_depth_dual2.py" # 聚合脚本路径
+
+# 并行线程
+N_JOBS=8
+MAPQ=20
+
+# ---------------------------
+# 依赖检查
+# ---------------------------
+need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: missing '$1' in PATH"; exit 127; }; }
+for x in samtools bedtools mosdepth awk gzip column python; do need "$x"; done
+
+# ---------------------------
+# 目录与索引
+# ---------------------------
+mkdir -p "$OUTDIR"
+[ -f "${REF}.fai" ] || samtools faidx "$REF"
+
+# ---------------------------
+# 样本清单（第一列 PoolName；跳过表头）
+# ---------------------------
+CLEAN_LIST="${OUTDIR}/_samples.clean.txt"
+sed -i 's/\r$//' "$POOLS"
+awk 'NR>1 && $1!="" {print $1}' "$POOLS" | sort -u > "$CLEAN_LIST"
+echo "[INFO] #samples in POOL_INFO: $(wc -l < "$CLEAN_LIST")"
+
+# ---------------------------
+# BAM 存在性 & 索引（仅对存在且未索引的 BAM）
+# ---------------------------
+echo "[INFO] Checking BAMs under $BAMDIR"
+awk -v D="$BAMDIR" '{p=D"/"$1"_rg.bam"; if (system("[ -f "p" ]")) print "MISSING: "p}' "$CLEAN_LIST" || true
+
+# 索引缺失才建索引
+while read -r S; do
+  bam="$BAMDIR/${S}_rg.bam"
+  if [ -f "$bam" ] && [ ! -f "${bam}.bai" ]; then
+    echo "[IDX] samtools index $S"
+    samtools index -@ "$N_JOBS" "$bam"
+  fi
+done < "$CLEAN_LIST"
+
+# ---------------------------
+# BED 预处理（去 CR、排序到参考顺序）
+# ---------------------------
+sed -i 's/\r$//' "$BED"
+bedtools sort -faidx "${REF}.fai" -i "$BED" > "$OUTDIR/_parts.sorted.bed"
+
+# 染色体一致性（无输出=OK）
+echo "[CHK] Chromosomes present in BED but absent in REF.fai:"
+comm -23 <(cut -f1 "$OUTDIR/_parts.sorted.bed" | sort -u) <(cut -f1 "${REF}.fai" | sort -u) || true
+
+# ---------------------------
+# mosdepth（仅对“存在的 BAM”并行运行）
+# 生成：${OUTDIR}/${SAMPLE}.regions.bed.gz 等
+# ---------------------------
+echo "[RUN] mosdepth over unionCDS"
+awk -v D="$BAMDIR" '{bam=D"/"$1"_rg.bam"; if (!system("[ -f "bam" ]")) print $1}' "$CLEAN_LIST" \
+| xargs -I{} -n1 -P"$N_JOBS" \
+  mosdepth -t "$N_JOBS" --by "$OUTDIR/_parts.sorted.bed" --mapq "$MAPQ" "$OUTDIR/{}" "$BAMDIR/{}_rg.bam"
+
+# ---------------------------
+# 聚合：生成 DPM / CN / FC / 汇总 等表格
+# ---------------------------
+echo "[RUN] build_gene_depth_dual2.py"
+python "$PY_BUILD" \
+  "$OUTDIR" \
+  "$POOLS" \
+  "$OUTDIR/_parts.sorted.bed" \
+  "$BAMDIR" \
+  "$OUTDIR"
+
+# ---------------------------
+# 轻量质检 & 常用查看
+# ---------------------------
+echo "[QC] Heads of key outputs"
+for f in \
+  gene_meanDepth.tsv \
+  gene_meanDepth.DPM.tsv \
+  gene_CN_within.tsv \
+  gene_FC_vs_geneMedian.tsv \
+  gene_copy_summary.tsv \
+  within_outliers.tsv
+do
+  ff="$OUTDIR/$f"
+  if [ -f "$ff" ]; then
+    echo "---- $f ----"
+    head -n 3 "$ff" | column -t
+  fi
+done
+
+echo
+echo "[DONE] All outputs under: $OUTDIR"
+echo "[TIP] Abnormal genes (CNV/paralogy suspects):"
+awk -F'\t' 'NR==1 || $4>0' "$OUTDIR/gene_copy_summary.tsv" | column -t | head

@@ -401,7 +401,7 @@ echo "✅ 核基因 PoMo cf(top2) 写入：$CF_DIR"
 
 MASTER_TRE="/mnt/spareHD_2/oxphos_gene_tree/species_astral.tre"
 CF_DIR="/mnt/spareHD_2/mt_gene_tree/counts_top2"
-OUT_DIR="/mnt/spareHD_2/mt_gene_tree/pruned_trees"
+OUT_DIR="/mnt/spareHD_2/mt_gene_tree/pruned_trees_te"
 THREADS=8
 
 mkdir -p "$OUT_DIR"
@@ -428,7 +428,7 @@ for CF in "$CF_DIR"/*.cf; do
     # 固定拓扑，PoMo 模型，重新估 branch length
     iqtree2 -s "$CF" \
             -m GTR+P \
-            -g "$MASTER_TRE" \
+            -te "$MASTER_TRE" \
             -nt "$THREADS" \
             -blmin 1e-12 -blmax 100 \
             -pre "$OUT_DIR/${GENE}_fixed" \
@@ -444,7 +444,7 @@ done
 # nu prune tree & iqtree
 MASTER_TRE="/mnt/spareHD_2/oxphos_gene_tree/species_astral.tre"
 CF_DIR="/mnt/spareHD_2/oxphos_gene_tree/counts_top2"
-OUT_DIR="/mnt/spareHD_2/oxphos_gene_tree/pruned_trees"
+OUT_DIR="/mnt/spareHD_2/oxphos_gene_tree/pruned_trees_te"
 THREADS=8
 
 mkdir -p "$OUT_DIR"
@@ -471,7 +471,7 @@ for CF in "$CF_DIR"/*.cf; do
     # 用 IQ-TREE 固定 topology 重新估分支长度
     iqtree2 -s "$CF" \
             -m GTR+P \
-            -g "$MASTER_TRE" \
+            -te "$MASTER_TRE" \
             -nt "$THREADS" \
             --safe \
             -pre "$OUT_DIR/${GENE}_fixed" \
@@ -511,6 +511,36 @@ cat \
   /mnt/spareHD_2/oxphos_gene_tree/genes_astral_named.tre \
   /mnt/spareHD_2/mt_gene_tree/mt_genes_named.tre \
   > /mnt/spareHD_2/all_genes_named.tre
+
+# 再数一下总基因数（= 以 [gene] 开头的树数）
+grep -c '^\[' /mnt/spareHD_2/all_genes_named.tre
+
+
+
+# merged tree te
+# 核：把 *_fixed.treefile 合并并在每棵树前加 [gene]
+cd /mnt/spareHD_2/oxphos_gene_tree/pruned_trees_te
+for f in $(ls *_fixed.treefile | sort); do
+  gene=${f%%_*}
+  printf '[%s]\n' "$gene"
+  cat "$f"
+  printf '\n'
+done > /mnt/spareHD_2/oxphos_gene_tree/te_genes_astral_named.tre
+
+# 线粒体：top2 目录
+cd /mnt/spareHD_2/mt_gene_tree/pruned_trees_te
+for f in $(ls *_fixed.treefile | sort); do
+  gene=${f%%_*}          # ATP6/ND1/… 这些前缀
+  printf '[%s]\n' "$gene"
+  cat "$f"
+  printf '\n'
+done > /mnt/spareHD_2/mt_gene_tree/te_mt_genes_named.tre
+
+
+cat \
+  /mnt/spareHD_2/oxphos_gene_tree/te_genes_astral_named.tre \
+  /mnt/spareHD_2/mt_gene_tree/te_mt_genes_named.tre \
+  > /mnt/spareHD_2/te_all_genes_named.tre
 
 # 再数一下总基因数（= 以 [gene] 开头的树数）
 grep -c '^\[' /mnt/spareHD_2/all_genes_named.tre

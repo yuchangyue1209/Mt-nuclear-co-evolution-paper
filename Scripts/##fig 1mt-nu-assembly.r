@@ -1,4 +1,4 @@
-##mt-nu-assembly
+#mt-nu-assembly
 ====== 路径 ======
 tsv     <- "/mnt/spareHD_2/oxphos_codeml_ready/09_codeml_sites_models/codeml_sites_summary.merged.tsv"
 out_dir <- "/mnt/spareHD_2/oxphos_codeml_ready/09_codeml_sites_models/_figs_mt_vs_subunit_R"

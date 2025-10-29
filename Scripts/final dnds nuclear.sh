@@ -848,3 +848,156 @@ echo "[hint] 预览前几行："
 head -n 10 "$OUT"
 
 
+
+
+
+#nu branch model1
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ====== 输入路径（保持与你现有布局一致）======
+TREEFILE="/mnt/spareHD_2/oxphos_gene_tree/unrooted_NJ_tree_pruned.standard.tree"
+NU_GENE_DIR="/mnt/spareHD_2/oxphos_codeml_ready/06_gene_align_72"
+
+# ====== 全新输出路径（不会覆盖你之前的 site models）======
+OUTROOT="/mnt/spareHD_2/oxphos_codeml_ready/10_codeml_branch_models/nu_free_ratio"
+mkdir -p "$OUTROOT/gene"
+SUMMARY_BRANCHES="$OUTROOT/nu_free_ratio_tip_branches.all_genes.tsv"   # 全基因汇总
+SUMMARY_LNL="$OUTROOT/nu_free_ratio_lnL.tsv"                           # 每基因 lnL 等
+: > "$SUMMARY_BRANCHES"
+: > "$SUMMARY_LNL"
+
+# 依赖检查
+for x in codeml nw_prune; do
+  command -v "$x" >/dev/null 2>&1 || { echo "[FATAL] $x not found in PATH"; exit 1; }
+done
+
+# 写 ctl：free-ratio（branch model）
+write_ctl(){  # $1 seqfile  $2 treefile  $3 outprefix
+  cat > "$3.ctl" <<EOF
+seqfile = $1
+treefile = $2
+outfile = $3.txt
+
+noisy = 3
+verbose = 1
+runmode = 0
+seqtype = 1
+CodonFreq = 2
+clock = 0
+aaDist = 0
+model = 1         * free-ratio (每条分支独立 omega)
+NSsites = 0
+icode = 0         * 核基因标准遗传密码
+fix_kappa = 0
+kappa = 2
+fix_omega = 0
+omega = 0.4
+cleandata = 1
+EOF
+}
+
+# 从对齐里取样本顺序（PAML 将按此顺序编号 1..N）
+emit_tip_order(){
+  local fas="$1"
+  grep '^>' "$fas" | sed 's/^>//; s/[ \t].*$//' | nl -ba
+}
+
+# 解析 free-ratio 的“dN & dS for each branch”表，抽出 tip 分支并加上样本名
+# 输出列：gene  tip_idx  tip_name  t  N  S  omega  dN  dS  NdN  SdS
+parse_fr_tips(){
+  local gene="$1" res="$2" order_map="$3"
+  # N: # of sequences
+  local N; N=$(awk '/# of sequences/ {print $4; exit}' "$res" 2>/dev/null)
+  [[ -z "${N:-}" ]] && return 0
+
+  # 读顺序映射到数组 name[i]
+  declare -A name
+  while read -r idx nm; do name["$idx"]="$nm"; done < <(cat "$order_map")
+
+  awk -v G="$gene" -v N="$N" -v MAP="$order_map" -v OFS="\t" '
+    BEGIN{insec=0}
+    $1=="dN" && $2=="&" && $3=="dS" && $4=="for" && $5=="each" && $6=="branch"{insec=1; getline; next}
+    insec && NF>=9 {
+      # 行格式：branch t N S dN/dS dN dS N*dN S*dS
+      # 这里 $1 是形如 "28..1" 的分支名
+      br=$1; gsub(/^ +| +$/,"",br)
+      split(br,a,"..")
+      left=a[1]+0; right=a[2]+0
+      # tip 分支的判断：任一端点 <= N 且另一端 > N
+      is_tip = ((left<=N && right>N) || (right<=N && left>N))
+      if(!is_tip) next
+
+      # 取 tip 的编号
+      tip_idx = (left<=N ? left : right)
+
+      # 填 tip 名：从 MAP 文件查
+      tip_name="NA"
+      # 为了速度在 awk 内读一次 MAP
+      if(FNR==1){
+        while( (getline L < MAP) > 0 ){
+          split(L,x,"[ \t]+"); idx=x[1]; nm=x[2]
+          if(nm!=""){ m[idx]=nm }
+        }
+        close(MAP)
+      }
+      if(tip_idx in m) tip_name=m[tip_idx]
+
+      printf("%s\t%d\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n",
+             G, tip_idx, tip_name, $(2), $(3), $(4), $(5), $(6), $(7), $(8), $(9))
+    }' "$res"
+}
+
+# 抓 lnL/kappa/omega 行做简单记录
+grab_lnL(){
+  local gene="$1" res="$2"
+  awk -v G="$gene" '
+    /lnL\(ntime:/ {
+      for(i=1;i<=NF;i++) if($i=="lnL"){lnl=$(i+2)}
+    }
+    /kappa \(ts\/tv\)/ {kappa=$4}
+    /omega \(dN\/dS\)/ {omega=$4}
+    END{
+      printf("%s\t%s\t%s\t%s\n", G, (lnl?lnl:""), (kappa?kappa:""), (omega?omega:""))
+    }' "$res"
+}
+
+echo -e "gene\ttip_idx\ttip_name\tt\tN\tS\tomega\tdN\tdS\tN*dN\tS*dS" >> "$SUMMARY_BRANCHES"
+echo -e "gene\tlnL\tkappa\tomega_treewide" >> "$SUMMARY_LNL"
+
+# ==== 主循环 ====
+mapfile -t GENES < <(find "$NU_GENE_DIR" -type f -name "*.codon.fas" | sort)
+echo "[plan] Found ${#GENES[@]} nuclear gene alignments."
+
+for fas in "${GENES[@]}"; do
+  gene=$(basename "$fas" .codon.fas)
+  outdir="$OUTROOT/gene/$gene/FR"
+  mkdir -p "$outdir"
+
+  # 样本顺序映射（1..N → 名字）
+  emit_tip_order "$fas" > "$outdir/tip_order.tsv"   # 两列：idx name
+
+  # 用样本集合裁剪树
+  cut -f2 "$outdir/tip_order.tsv" | tr '\n' ' ' | xargs -I{} bash -lc \
+    'nw_prune -v "'"$TREEFILE"'" {} > "'"$outdir/tree.nwk"'"' || {
+      echo "[WARN] prune failed for $gene"; continue;
+    }
+
+  # 写 ctl & 运行 codeml
+  write_ctl "$fas" "$outdir/tree.nwk" "$outdir/result"
+  ( cd "$outdir" && rm -f result.txt mlc lnf rst rst1 2NG.* 4fold.* run.log
+    codeml result.ctl > run.log 2>&1 || true )
+
+  if [[ ! -s "$outdir/result.txt" ]]; then
+    echo "[WARN] no result for $gene"; continue
+  fi
+
+  # 解析 tip 分支、追加到总表
+  parse_fr_tips "$gene" "$outdir/result.txt" "$outdir/tip_order.tsv" >> "$SUMMARY_BRANCHES"
+  grab_lnL "$gene" "$outdir/result.txt" >> "$SUMMARY_LNL"
+  echo "[ok] $gene : free-ratio done"
+done
+
+echo "[done] Free-ratio (nu) finished."
+echo "  Tip-branches (all genes): $SUMMARY_BRANCHES"
+echo "  lnL/kappa/omega summary : $SUMMARY_LNL"

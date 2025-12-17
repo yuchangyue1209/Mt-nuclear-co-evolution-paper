@@ -544,3 +544,42 @@ cat \
 
 # 再数一下总基因数（= 以 [gene] 开头的树数）
 grep -c '^\[' /mnt/spareHD_2/all_genes_named.tre
+
+
+
+
+MT_TE_DIR="/mnt/spareHD_2/mt_gene_tree/mt_gene_trees_te"
+THREADS=8
+
+mkdir -p "$MT_TE_DIR"
+
+shopt -s nullglob
+for ALN in "$ALIGN_DIR"/*.mt.aln.fasta; do
+  GENE=$(basename "$ALN" .mt.aln.fasta)
+  PRE="$MT_TE_DIR/${GENE}_te"
+
+  if [[ -s "${PRE}.treefile" ]]; then
+    echo "⏩ [mt] 跳过 $GENE（*_te.treefile 已存在）"
+    continue
+  fi
+
+  echo "🌲 [mt] IQ-TREE 约束建树 $GENE ..."
+
+  iqtree2 -s "$ALN" \
+          -m GTR+G \        # 或者用 MFP 也行：-m MFP
+          -te "$REF_TRE" \  # 拓扑固定为 species_astral
+          -nt "$THREADS" \
+          -keep-ident \
+          -pre "$PRE" \
+          --safe \
+          -quiet
+
+  if [[ -s "${PRE}.treefile" ]]; then
+    echo "✅ [mt] $GENE → ${PRE}.treefile"
+  else
+    echo "❗ [mt] $GENE 失败，请查 ${PRE}.log"
+  fi
+done
+shopt -u nullglob
+
+echo -e "\n🎯 [mt] 约束 mt gene trees 在：$MT_TE_DIR"

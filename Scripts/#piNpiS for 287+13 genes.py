@@ -898,3 +898,673 @@ echo "[DONE] ${ROOT}/results/pinpis_all_287plus13.tsv"
 
 
 
+#做图
+#mt nu ass
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggsignif)
+  library(dplyr)
+})
+
+## ========= 输入 =========
+mt_rds <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis_mt13.rds"
+nu_rds <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis.rds"
+
+out_dir <- "/mnt/spareHD_2/nu_287/pinpis/results/_figs_pi_mt_nu_like_dnds"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+## ========= 参数 =========
+alpha <- 0.05
+signif_only <- TRUE  # TRUE: 只画显著星号；FALSE: 总是画（n.s.）
+have_ragg <- requireNamespace("ragg", quietly = TRUE)
+
+## ========= 颜色与标签（完全沿用你 dN/dS）=========
+fill_cols_3 <- c(mt="#8CC6EC", subunit="#F5A6A6", assembly_factor="#BFD99B")
+label_map_3 <- c(mt="mtOXPHOS", subunit="nuOXPHOS", assembly_factor="nuOXPHOS assembly_factor")
+
+fill_cols_2 <- c(mt="#8CC6EC", subunit="#F5A6A6")
+label_map_2 <- c(mt="mtOXPHOS", subunit="nuOXPHOS")
+
+## ========= 读表 =========
+mt <- readRDS(mt_rds)
+nu <- readRDS(nu_rds)
+
+## 只保留需要的 role
+mt <- mt %>% mutate(role = "mt")
+nu2 <- nu %>% filter(role %in% c("subunit","assembly_factor"))
+
+## 合并成一个用于画图的数据框
+df <- bind_rows(
+  mt %>% select(gene, role, piN_mean, piS_mean, piN_piS_mean),
+  nu2 %>% select(gene, role, piN_mean, piS_mean, piN_piS_mean)
+)
+
+## ========= 小工具 =========
+.save_png_pdf <- function(g, file_base, width=7.0, height=4.8, dpi=300){
+  if (have_ragg) {
+    ragg::agg_png(paste0(file_base,".png"), width, height, units="in", res=dpi); print(g); dev.off()
+  } else {
+    ggsave(paste0(file_base,".png"), g, width=width, height=height, dpi=dpi)
+  }
+  ggsave(paste0(file_base,".pdf"), g, width=width, height=height, dpi=dpi, device=cairo_pdf)
+  message("[write] ", file_base, ".png / .pdf")
+}
+p_to_stars <- function(p){
+  if (is.na(p)) "n.s."
+  else if (p < 0.001) "***"
+  else if (p < 0.01)  "**"
+  else if (p < 0.05)  "*"
+  else "n.s."
+}
+
+## ========= 三组：两两 Wilcoxon + BH（画星号）=========
+pairwise_stars3 <- function(dd, yvar){
+  lv <- levels(dd$role)
+  prs <- combn(lv, 2, simplify=FALSE)
+
+  raw_p <- sapply(prs, function(pr){
+    x <- dd[dd$role==pr[1], yvar, drop=TRUE]
+    y <- dd[dd$role==pr[2], yvar, drop=TRUE]
+    if (length(x)<2 || length(y)<2) return(NA_real_)
+    tryCatch(wilcox.test(x, y, exact=FALSE)$p.value, error=function(e) NA_real_)
+  })
+  adj_p <- p.adjust(raw_p, method="BH")
+
+  out <- data.frame(
+    a = vapply(prs, `[`, "", 1),
+    b = vapply(prs, `[`, "", 2),
+    p = adj_p,
+    star = vapply(adj_p, p_to_stars, ""),
+    stringsAsFactors = FALSE
+  )
+
+  if (signif_only) out <- out %>% filter(!is.na(p) & p < alpha)
+  out
+}
+
+plot_three_with_stars <- function(metric, ylab, out_stub){
+  dd <- df %>%
+    filter(!is.na(.data[[metric]])) %>%
+    mutate(role = factor(role, levels=c("mt","subunit","assembly_factor")))
+
+  # 只保留三组都在的情况也行，但这里不强制
+  dd <- dd %>% filter(role %in% c("mt","subunit","assembly_factor"))
+
+  stopifnot(nrow(dd) > 0)
+
+  pw <- pairwise_stars3(dd, metric)
+
+  rng <- range(dd[[metric]], na.rm=TRUE)
+  spn <- diff(rng); if (!is.finite(spn) || spn==0) spn <- 1
+  top0 <- rng[2] + 0.25*spn
+  step <- 0.12*spn
+  y_pos <- if (nrow(pw)) top0 + step*seq_len(nrow(pw)) else numeric(0)
+
+  g <- ggplot(dd, aes(role, .data[[metric]], fill=role)) +
+    geom_boxplot(width=0.55, colour="black", linewidth=0.7, outlier.shape=NA) +
+    geom_point(position=position_jitter(width=0.12, height=0),
+               size=2.0, shape=21, stroke=0.35, colour="black") +
+    scale_fill_manual(values=fill_cols_3, guide="none") +
+    scale_x_discrete(labels=label_map_3) +
+    labs(x=NULL, y=ylab) +
+    theme_bw(base_size=14) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color="#e8e8e8"),
+      panel.grid.major.x = element_blank(),
+      panel.border = element_rect(color="black", fill=NA, linewidth=0.6),
+      axis.text.x = element_text(margin=margin(t=5)),
+      plot.margin = unit(c(10,12,10,10), "pt")
+    )
+
+  if (nrow(pw)) {
+    comps <- Map(function(a,b) c(a,b), pw$a, pw$b)
+    g <- g + ggsignif::geom_signif(
+      comparisons = comps,
+      annotations = pw$star,
+      y_position  = y_pos,
+      tip_length  = 0.01,
+      textsize    = 5,
+      vjust       = 0.25,
+      size        = 0.6
+    ) +
+      coord_cartesian(ylim=c(rng[1]-0.15*spn, max(y_pos)+0.15*spn), clip="off")
+  } else {
+    g <- g + coord_cartesian(ylim=c(rng[1]-0.15*spn, rng[2]+0.35*spn), clip="off")
+  }
+
+  .save_png_pdf(g, file.path(out_dir, out_stub))
+}
+
+## ========= 两组：Wilcoxon（画星号）=========
+plot_two_with_star <- function(metric, ylab, out_stub){
+  dd <- df %>%
+    filter(role %in% c("mt","subunit")) %>%
+    filter(!is.na(.data[[metric]])) %>%
+    mutate(role = factor(role, levels=c("mt","subunit")))
+
+  stopifnot(nrow(dd) > 0)
+
+  p_raw <- tryCatch(wilcox.test(dd[[metric]] ~ dd$role, exact=FALSE)$p.value, error=function(e) NA_real_)
+  star <- p_to_stars(p_raw)
+  draw_it <- if (signif_only) (!is.na(p_raw) && p_raw < alpha) else TRUE
+
+  rng <- range(dd[[metric]], na.rm=TRUE)
+  spn <- diff(rng); if (!is.finite(spn) || spn==0) spn <- 1
+  ytxt <- rng[2] + 0.42*spn
+
+  g <- ggplot(dd, aes(role, .data[[metric]], fill=role)) +
+    geom_boxplot(width=0.55, colour="black", linewidth=0.7, outlier.shape=NA) +
+    geom_point(position=position_jitter(width=0.12, height=0),
+               size=2.0, shape=21, stroke=0.35, colour="black") +
+    scale_fill_manual(values=fill_cols_2, guide="none") +
+    scale_x_discrete(labels=label_map_2) +
+    labs(x=NULL, y=ylab) +
+    theme_bw(base_size=14) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color="#e8e8e8"),
+      panel.grid.major.x = element_blank(),
+      panel.border = element_rect(color="black", fill=NA, linewidth=0.6),
+      axis.text.x = element_text(margin=margin(t=5)),
+      plot.margin = unit(c(10,12,10,10), "pt")
+    )
+
+  if (draw_it) {
+    g <- g + ggsignif::geom_signif(
+      comparisons=list(c("mt","subunit")),
+      annotations=star, y_position=ytxt,
+      tip_length=0.01, textsize=6, vjust=0.25, size=0.7
+    ) + coord_cartesian(ylim=c(rng[1]-0.15*spn, ytxt+0.15*spn), clip="off")
+  } else {
+    g <- g + coord_cartesian(ylim=c(rng[1]-0.15*spn, rng[2]+0.35*spn), clip="off")
+  }
+
+  .save_png_pdf(g, file.path(out_dir, out_stub))
+}
+
+## ========= 6 张图 =========
+plot_three_with_stars("piN_mean",     expression(pi[N]),      "PI_gene_piN_mt_nu_ass_star")
+plot_three_with_stars("piS_mean",     expression(pi[S]),      "PI_gene_piS_mt_nu_ass_star")
+plot_three_with_stars("piN_piS_mean", expression(pi[N]/pi[S]),"PI_gene_piNpiS_mt_nu_ass_star")
+
+plot_two_with_star("piN_mean",     expression(pi[N]),      "PI_gene_piN_mt_vs_nuOXPHOS_star")
+plot_two_with_star("piS_mean",     expression(pi[S]),      "PI_gene_piS_mt_vs_nuOXPHOS_star")
+plot_two_with_star("piN_piS_mean", expression(pi[N]/pi[S]),"PI_gene_piNpiS_mt_vs_nuOXPHOS_star")
+
+cat("Done. 6 π figures -> ", out_dir, "\n")
+
+
+#mt nu ass complex
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(dplyr)
+})
+
+## ---------- 输入 ----------
+mt_rds <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis_mt13.rds"
+nu_rds <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis.rds"
+
+outd <- "/mnt/spareHD_2/nu_287/pinpis/results/_figs_pi_mt_nu_like_dnds/complex_mt_nu_ass_stars"
+dir.create(outd, recursive = TRUE, showWarnings = FALSE)
+
+## ---------- 参数 ----------
+signif_only <- TRUE
+alpha <- 0.05
+have_ragg <- requireNamespace("ragg", quietly = TRUE)
+
+## ---------- 颜色/标签（与 dN/dS 一致） ----------
+role_labels <- c(mt="mtOXPHOS", subunit="nuOXPHOS", assembly_factor="nuOXPHOS assembly_factor")
+palette3    <- c(mt="#8CC6EC",  subunit="#F5A6A6", assembly_factor="#BFD99B")
+
+## ---------- 读 RDS ----------
+mt <- readRDS(mt_rds) %>% mutate(role="mt")
+nu <- readRDS(nu_rds) %>% filter(role %in% c("subunit","assembly_factor"))
+
+## 需要 complex：mt13 自带 complex；nu 的 complex 来自你 codeml annot join 后的 gene_final（你现在的 nu rds 里应该有 complex）
+stopifnot("complex" %in% names(mt))
+stopifnot("complex" %in% names(nu))
+
+df <- bind_rows(
+  mt %>% select(gene, role, complex, piN_mean, piS_mean, piN_piS_mean),
+  nu %>% select(gene, role, complex, piN_mean, piS_mean, piN_piS_mean)
+)
+
+## ---------- Complex 统一 I–V ----------
+df$complex <- toupper(trimws(df$complex))
+df$Complex <- dplyr::recode(df$complex,
+  "CI"="I","C I"="I","I"="I",
+  "CII"="II","C II"="II","II"="II",
+  "CIII"="III","C III"="III","III"="III",
+  "CIV"="IV","C IV"="IV","IV"="IV",
+  "CV"="V","C V"="V","V"="V",
+  .default = NA_character_
+)
+df <- df[!is.na(df$Complex), , drop=FALSE]
+df$Complex <- factor(df$Complex, levels=c("I","II","III","IV","V"))
+
+## role 顺序固定
+df$role <- factor(df$role, levels=c("mt","subunit","assembly_factor"))
+
+## ---------- 保存 ----------
+save_png_pdf <- function(g, file_base, w=7.6, h=4.8, dpi=300){
+  if (have_ragg) { ragg::agg_png(paste0(file_base,".png"), w, h, units="in", res=dpi); print(g); dev.off() }
+  else           { ggsave(paste0(file_base,".png"), g, width=w, height=h, dpi=dpi) }
+  ggsave(paste0(file_base,".pdf"), g, width=w, height=h, dpi=dpi, device=cairo_pdf)
+  message("[write] ", file_base, ".png / .pdf")
+}
+
+## ---------- position_dodge 下每组箱体 x 坐标 ----------
+dodge_x <- function(x_index, role, roles_kept, dodge_width=0.72){
+  n <- length(roles_kept)
+  j <- match(role, roles_kept)
+  offset <- ((j - (n+1)/2) / n) * dodge_width
+  x_index + offset
+}
+p2star <- function(p){
+  if (is.na(p)) "n.s."
+  else if (p < 0.001) "***"
+  else if (p < 0.01)  "**"
+  else if (p < 0.05)  "*"
+  else "n.s."
+}
+
+## ---------- 生成一张（三组，每个 Complex 内 BH 后只标显著） ----------
+make_plot3 <- function(dat, metric, ylab, file_stub){
+  d <- dat[!is.na(dat[[metric]]), , drop=FALSE]
+  if (nrow(d)==0) { warning("No data: ", file_stub); return(invisible(NULL)) }
+
+  roles_keep <- c("mt","subunit","assembly_factor")
+  dodge_w <- 0.72
+
+  BOX_LWD=0.7; FRAME_LWD=0.6; PNT_SIZE=2.0; PNT_STROK=0.35
+
+  g <- ggplot(d, aes(x=Complex, y=.data[[metric]], fill=role)) +
+    geom_boxplot(position=position_dodge(width=dodge_w), width=0.6,
+                 colour="black", linewidth=BOX_LWD, outlier.shape=NA) +
+    geom_point(position=position_jitterdodge(jitter.width=0.10, dodge.width=dodge_w),
+               size=PNT_SIZE, shape=21, stroke=PNT_STROK, colour="black") +
+    scale_fill_manual(values=palette3, labels=role_labels, name=NULL) +
+    labs(x="Complex", y=ylab) +
+    theme_bw(base_size=14) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_line(color="#e8e8e8"),
+      panel.border = element_rect(color="black", fill=NA, linewidth=FRAME_LWD),
+      legend.position = "top",
+      plot.margin = unit(c(8,10,8,8), "pt")
+    )
+
+  ## ---- 每个 Complex 内两两 Wilcoxon + BH ----
+  yr <- range(d[[metric]], na.rm=TRUE)
+  span <- diff(yr); if (!is.finite(span) || span==0) span <- 1
+  base_y <- yr[2] + 0.25*span
+  step_y <- 0.12*span
+
+  x_lvls <- levels(d$Complex); x_idx <- seq_along(x_lvls)
+  df_lines <- list(); df_text <- list(); row_id <- 1
+
+  for (i in seq_along(x_lvls)) {
+    cx <- x_lvls[i]
+    di <- d[d$Complex==cx, , drop=FALSE]
+    if (nrow(di) < 2) next
+
+    roles_here <- roles_keep[roles_keep %in% unique(as.character(di$role))]
+    if (length(roles_here) < 2) next
+
+    prs <- combn(roles_here, 2, simplify=FALSE)
+    pvals <- sapply(prs, function(pr){
+      x <- di[di$role==pr[1], metric, drop=TRUE]
+      y <- di[di$role==pr[2], metric, drop=TRUE]
+      if (length(x)<2 || length(y)<2) return(NA_real_)
+      tryCatch(wilcox.test(x, y, exact=FALSE)$p.value, error=function(e) NA_real_)
+    })
+    padj <- if (length(pvals)>1) p.adjust(pvals, "BH") else pvals
+
+    keep <- if (signif_only) which(!is.na(padj) & padj < alpha) else seq_along(padj)
+    if (!length(keep)) next
+
+    for (j in seq_along(keep)) {
+      k <- keep[j]; pr <- prs[[k]]
+      y0 <- base_y + (j-1)*step_y
+      x1 <- dodge_x(x_idx[i], pr[1], roles_keep, dodge_w)
+      x2 <- dodge_x(x_idx[i], pr[2], roles_keep, dodge_w)
+
+      df_lines[[row_id]] <- data.frame(x=x1, xend=x2, y=y0, yend=y0)
+      df_text [[row_id]] <- data.frame(x=(x1+x2)/2, y=y0 + 0.02*span, lab=p2star(padj[k]))
+      row_id <- row_id + 1
+    }
+  }
+
+  if (length(df_lines)) {
+    df_lines <- do.call(rbind, df_lines)
+    df_text  <- do.call(rbind, df_text)
+    g <- g +
+      geom_segment(data=df_lines, aes(x=x, xend=xend, y=y, yend=y),
+                   inherit.aes=FALSE, linewidth=0.6) +
+      geom_text(data=df_text, aes(x=x, y=y, label=lab),
+                inherit.aes=FALSE, size=4.4, vjust=0)
+    g <- g + coord_cartesian(ylim=c(yr[1]-0.12*span, max(df_text$y)+0.12*span), clip="off")
+  } else {
+    g <- g + coord_cartesian(ylim=c(yr[1]-0.12*span, yr[2]+0.35*span), clip="off")
+  }
+
+  save_png_pdf(g, file.path(outd, file_stub))
+}
+
+## ---------- 出图：三张（πN / πS / πNπS） ----------
+make_plot3(df, "piN_mean",     expression(pi[N]),       "PI_complex_mt_nu_ass_piN")
+make_plot3(df, "piS_mean",     expression(pi[S]),       "PI_complex_mt_nu_ass_piS")
+make_plot3(df, "piN_piS_mean", expression(pi[N]/pi[S]), "PI_complex_mt_nu_ass_piNpiS")
+
+cat("Done. π complex figures -> ", outd, "\n")
+
+#corenoncore
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggsignif)
+  library(dplyr)
+})
+
+## ===== 输入 =====
+nu_rds <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis.rds"
+out_dir <- "/mnt/spareHD_2/nu_287/pinpis/results/_figs_pi_mt_nu_like_dnds/core_noncore"
+dir.create(out_dir, recursive=TRUE, showWarnings=FALSE)
+
+signif_only <- TRUE
+alpha <- 0.05
+have_ragg <- requireNamespace("ragg", quietly = TRUE)
+
+## ===== 颜色（跟 dN/dS 一致的 nu 配色）=====
+label_map <- c(nu_core="nu OXPHOS (core)", nu_noncore="nu OXPHOS (noncore)")
+fill_cols <- c(nu_core="#F5A6A6", nu_noncore="#E5C16C")
+
+.save_png_pdf <- function(g, file_base, width=6.6, height=4.6, dpi=300){
+  if (have_ragg) { ragg::agg_png(paste0(file_base,".png"), width, height, units="in", res=dpi); print(g); dev.off() }
+  else           { ggsave(paste0(file_base,".png"), g, width=width, height=height, dpi=dpi) }
+  ggsave(paste0(file_base,".pdf"), g, width=width, height=height, dpi=dpi, device=cairo_pdf)
+  message("[write] ", file_base, ".png / .pdf")
+}
+p_to_stars <- function(p){
+  if (is.na(p)) "n.s."
+  else if (p < 0.001) "***"
+  else if (p < 0.01)  "**"
+  else if (p < 0.05)  "*"
+  else "n.s."
+}
+
+## ===== 读 nu gene_final =====
+df <- readRDS(nu_rds)
+
+## 只保留 nu subunit（core/noncore 只对 subunit 有意义）
+df <- df %>%
+  filter(role == "subunit") %>%
+  mutate(
+    GENE_UP = toupper(gene),
+    COMPLEX_UP = toupper(gsub("\\s+","", complex))
+  )
+
+has_suffix <- function(x, pat) grepl(paste0("^(", pat, ")[A-Z]?$"), x)
+
+## CI 核心（NDUFS1-3/7/8；NDUFV1-2）
+is_core_CI <- with(df, COMPLEX_UP=="CI" &
+  ( has_suffix(GENE_UP, "NDUFS1|NDUFS2|NDUFS3|NDUFS7|NDUFS8") |
+    has_suffix(GENE_UP, "NDUFV1|NDUFV2") ))
+
+## CII 核心（SDHA-D）
+is_core_CII <- with(df, COMPLEX_UP=="CII" &
+  has_suffix(GENE_UP, "SDHA|SDHB|SDHC|SDHD"))
+
+## CV 核心（兼容旧/新命名）
+core_CV_F1 <- with(df, COMPLEX_UP=="CV" &
+  ( has_suffix(GENE_UP, "ATP5A1|ATP5B|ATP5C1|ATP5D") |
+    has_suffix(GENE_UP, "ATP5F1A|ATP5F1B|ATP5F1C|ATP5F1D") ))
+
+core_CV_c <- with(df, COMPLEX_UP=="CV" &
+  has_suffix(GENE_UP, "ATP5G1|ATP5G2|ATP5G3|ATP5MC1|ATP5MC2|ATP5MC3"))
+
+is_nu_core <- is_core_CI | is_core_CII | core_CV_F1 | core_CV_c
+
+df$grp <- ifelse(is_nu_core, "nu_core", "nu_noncore")
+df$grp <- factor(df$grp, levels=c("nu_core","nu_noncore"))
+
+message("[counts]"); print(table(df$grp))
+
+## ===== 两组图函数（括号+星号）=====
+plot_two <- function(metric, ylab, out_stub){
+  dd <- df[!is.na(df[[metric]]), , drop=FALSE]
+  stopifnot(nrow(dd) > 0)
+
+  p_raw <- tryCatch(wilcox.test(dd[[metric]] ~ dd$grp, exact=FALSE)$p.value,
+                    error=function(e) NA_real_)
+  star <- p_to_stars(p_raw)
+
+  rng <- range(dd[[metric]], na.rm=TRUE)
+  spn <- diff(rng); if (!is.finite(spn) || spn==0) spn <- 1
+  ytxt <- rng[2] + 0.42*spn
+
+  BOX_LWD=0.7; FRAME_LWD=0.6; PNT_SIZE=2.0; PNT_STROK=0.35
+
+  g <- ggplot(dd, aes(grp, .data[[metric]], fill=grp)) +
+    geom_boxplot(width=0.55, colour="black", linewidth=BOX_LWD, outlier.shape=NA) +
+    geom_point(position=position_jitter(width=0.12, height=0),
+               size=PNT_SIZE, shape=21, stroke=PNT_STROK, colour="black") +
+    scale_fill_manual(values=fill_cols, guide="none") +
+    scale_x_discrete(labels=label_map) +
+    labs(x=NULL, y=ylab) +
+    theme_bw(base_size=14) +
+    theme(
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      panel.grid.major.y=element_line(color="#e8e8e8"),
+      panel.border=element_rect(color="black", fill=NA, linewidth=FRAME_LWD),
+      axis.text.x=element_text(margin=margin(t=5)),
+      plot.margin=unit(c(10,12,10,10), "pt")
+    )
+
+  draw_it <- if (signif_only) (!is.na(p_raw) && p_raw < alpha) else TRUE
+  if (draw_it) {
+    g <- g +
+      ggsignif::geom_signif(comparisons=list(c("nu_core","nu_noncore")),
+                            annotations=star, y_position=ytxt,
+                            tip_length=0.01, textsize=5, vjust=0.3, linewidth=0.6) +
+      coord_cartesian(ylim=c(rng[1]-0.15*spn, ytxt+0.15*spn), clip="off")
+  } else {
+    g <- g + coord_cartesian(ylim=c(rng[1]-0.15*spn, rng[2]+0.35*spn), clip="off")
+  }
+
+  .save_png_pdf(g, file.path(out_dir, out_stub))
+}
+
+## ===== 出图：πN / πS / πNπS =====
+plot_two("piN_mean",     expression(pi[N]),       "PI_nu_core_vs_noncore_piN")
+plot_two("piS_mean",     expression(pi[S]),       "PI_nu_core_vs_noncore_piS")
+plot_two("piN_piS_mean", expression(pi[N]/pi[S]), "PI_nu_core_vs_noncore_piNpiS")
+
+cat("Done. Figures -> ", out_dir, "\n")
+
+
+
+#ars ribo
+#!/usr/bin/env Rscript
+## ===============================================================
+## 6 张独立图（PNG+PDF）：
+## cyto-ribo vs Nmt-ribo；cyto-ARS vs Nmt-ARS
+## 指标：piN / piS / piNpiS；顶部括号+星号
+## 输入：Q1b_gene_final_pinpis.rds（gene-level 汇总表）
+## ===============================================================
+
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggsignif)
+  library(dplyr)
+})
+
+## ====== 路径 ======
+in_rds  <- "/mnt/spareHD_2/nu_287/pinpis/results/Q1b_gene_final_pinpis.rds"
+out_dir <- "/mnt/spareHD_2/nu_287/pinpis/results/_figs_pi_mt_nu_like_dnds/ARS_Ribo"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+## ====== 参数 ======
+signif_only <- TRUE      # TRUE: 仅 p<0.05 画星号；FALSE: 总是画括号（星号可为 n.s.）
+alpha <- 0.05
+
+## ====== 读表 ======
+df <- readRDS(in_rds)
+
+## ====== 从 role 推断分组：cyto-ars / nmt-ars / cyto-ribo / nmt-ribo ======
+## 兼容你可能出现的命名：cyto-ARS, Nmt-ARS, cyto-RP, Nmt-RP, cyto-ribo, nmt-ribo,
+## 也兼容 "cyto-ars"/"nmt-ars" 这种已经规范的。
+to_grp <- function(role_chr){
+  x <- tolower(trimws(role_chr))
+  x <- gsub("_","-",x)
+
+  is_ars  <- grepl("ars", x)
+  is_ribo <- grepl("ribo|\\brp\\b|rp-", x)  # ribo / RP
+
+  is_cyto <- grepl("^cyto|cytoplas", x)
+  is_nmt  <- grepl("^nmt|mito|nuclear|nu-", x)  # 把 nu- 也归到 nmt 这边（核编码线粒体相关）
+
+  if (is_ars && is_cyto) return("cyto-ars")
+  if (is_ars && is_nmt)  return("nmt-ars")
+  if (is_ribo && is_cyto) return("cyto-ribo")
+  if (is_ribo && is_nmt)  return("nmt-ribo")
+  return(NA_character_)
+}
+
+df <- df %>%
+  mutate(
+    grp = vapply(role, to_grp, character(1))
+  ) %>%
+  filter(!is.na(grp))
+
+df$grp <- factor(df$grp, levels=c("cyto-ribo","nmt-ribo","cyto-ars","nmt-ars"))
+
+message("[grp counts]"); print(table(df$grp))
+
+## ====== 工具函数 ======
+have_ragg <- requireNamespace("ragg", quietly = TRUE)
+save_png_pdf <- function(g, file_base, width=6.4, height=4.6, dpi=300){
+  if (have_ragg) { ragg::agg_png(paste0(file_base,".png"), width, height, units="in", res=dpi); print(g); dev.off() }
+  else           { ggsave(paste0(file_base,".png"), g, width=width, height=height, dpi=dpi) }
+  ggsave(paste0(file_base,".pdf"), g, width=width, height=height, dpi=dpi, device=cairo_pdf)
+  message("[write] ", file_base, ".png / .pdf")
+}
+p_to_stars <- function(p){
+  if (is.na(p)) "n.s."
+  else if (p < 0.001) "***"
+  else if (p < 0.01)  "**"
+  else if (p < 0.05)  "*"
+  else "n.s."
+}
+
+plot_two <- function(dat, level_left, level_right, metric, ylab,
+                     label_left, label_right, fill_left, fill_right,
+                     out_stub) {
+
+  dd <- dat[dat$grp %in% c(level_left, level_right), , drop=FALSE]
+  dd <- dd[!is.na(dd[[metric]]), , drop=FALSE]
+  if (nrow(dd) < 2) {
+    message("[skip] 数据不足：", out_stub,
+            " | levels present: ", paste(unique(dd$grp), collapse=", "))
+    return(invisible(NULL))
+  }
+
+  dd$grp <- factor(dd$grp, levels=c(level_left, level_right))
+
+  disp_labels <- setNames(c(label_left, label_right), c(level_left, level_right))
+  fills       <- setNames(c(fill_left,  fill_right),  c(level_left, level_right))
+
+  p_raw <- tryCatch(wilcox.test(dd[[metric]] ~ dd$grp, exact=FALSE)$p.value,
+                    error=function(e) NA_real_)
+  star <- p_to_stars(p_raw)
+
+  rng <- range(dd[[metric]], na.rm=TRUE)
+  spn <- diff(rng); if (!is.finite(spn) || spn==0) spn <- 1
+  ytxt <- rng[2] + 0.40*spn
+
+  BOX_LWD=0.7; FRAME_LWD=0.6; PNT_SIZE=2.0; PNT_STROK=0.35
+
+  g <- ggplot(dd, aes(grp, .data[[metric]], fill=grp)) +
+    geom_boxplot(width=0.55, colour="black", linewidth=BOX_LWD, outlier.shape=NA) +
+    geom_point(position=position_jitter(width=0.12, height=0),
+               size=PNT_SIZE, shape=21, stroke=PNT_STROK, colour="black") +
+    scale_fill_manual(values=fills, guide="none") +
+    scale_x_discrete(labels=disp_labels) +
+    labs(x=NULL, y=ylab) +
+    theme_bw(base_size=14) +
+    theme(
+      text=element_text(family="sans"),
+      axis.title=element_text(face="plain"),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.y=element_line(color="#e8e8e8"),
+      panel.grid.major.x=element_blank(),
+      panel.border=element_rect(color="black", fill=NA, linewidth=FRAME_LWD),
+      axis.text.x=element_text(margin=margin(t=5)),
+      plot.margin=unit(c(10,12,10,10), "pt")
+    )
+
+  draw_it <- if (signif_only) (!is.na(p_raw) && p_raw < alpha) else TRUE
+  if (draw_it) {
+    g <- g +
+      ggsignif::geom_signif(
+        comparisons=list(c(level_left, level_right)),
+        annotations=star, y_position=ytxt,
+        tip_length=0.01, textsize=5, vjust=0.3, linewidth=0.6
+      ) +
+      coord_cartesian(ylim=c(rng[1]-0.15*spn, ytxt+0.15*spn), clip="off")
+  } else {
+    g <- g + coord_cartesian(ylim=c(rng[1]-0.15*spn, rng[2]+0.35*spn), clip="off")
+  }
+
+  save_png_pdf(g, file.path(out_dir, out_stub))
+}
+
+## ====== 颜色（完全沿用你 dN/dS 的 ribo/ARS 配色）======
+COL_RIBO <- c(cyto="#3BA2D0", nmt="#F29F3D")   # ribo：蓝 / 橙
+COL_ARS  <- c(cyto="#4C6FB3", nmt="#E06C9F")   # ARS ：紫蓝 / 洋红
+
+## ====== 出图：共 6 张 ======
+# ribo
+plot_two(df, "cyto-ribo", "nmt-ribo",
+         "piN_mean", expression(pi[N]),
+         "cyto-RP", "Nmt-RP",
+         COL_RIBO["cyto"], COL_RIBO["nmt"],
+         "PI_ribo_piN_cyto_vs_Nmt")
+
+plot_two(df, "cyto-ribo", "nmt-ribo",
+         "piS_mean", expression(pi[S]),
+         "cyto-RP", "Nmt-RP",
+         COL_RIBO["cyto"], COL_RIBO["nmt"],
+         "PI_ribo_piS_cyto_vs_Nmt")
+
+plot_two(df, "cyto-ribo", "nmt-ribo",
+         "piN_piS_mean", expression(pi[N]/pi[S]),
+         "cyto-RP", "Nmt-RP",
+         COL_RIBO["cyto"], COL_RIBO["nmt"],
+         "PI_ribo_piNpiS_cyto_vs_Nmt")
+
+# ARS
+plot_two(df, "cyto-ars", "nmt-ars",
+         "piN_mean", expression(pi[N]),
+         "cyto-ARS", "Nmt-ARS",
+         COL_ARS["cyto"], COL_ARS["nmt"],
+         "PI_ARS_piN_cyto_vs_Nmt")
+
+plot_two(df, "cyto-ars", "nmt-ars",
+         "piS_mean", expression(pi[S]),
+         "cyto-ARS", "Nmt-ARS",
+         COL_ARS["cyto"], COL_ARS["nmt"],
+         "PI_ARS_piS_cyto_vs_Nmt")
+
+plot_two(df, "cyto-ars", "nmt-ars",
+         "piN_piS_mean", expression(pi[N]/pi[S]),
+         "cyto-ARS", "Nmt-ARS",
+         COL_ARS["cyto"], COL_ARS["nmt"],
+         "PI_ARS_piNpiS_cyto_vs_Nmt")
+
+cat("Done. Figures -> ", out_dir, "\n")

@@ -676,6 +676,13 @@ echo "Warn log   : $LOGERR"
 
 
 
+
+
+
+
+
+
+
 #mt
 #!/usr/bin/env bash
 # === mt dN/dS (gene-level) — drop-in replacement ===
@@ -782,6 +789,8 @@ echo "Summary → $SUMMARY"
 
 
 
+
+
 #merge into table
 #!/usr/bin/env bash
 set -euo pipefail
@@ -846,6 +855,12 @@ done
 echo "[done] wrote: $OUT"
 echo "[hint] 预览前几行："
 head -n 10 "$OUT"
+
+
+
+
+
+
 
 
 

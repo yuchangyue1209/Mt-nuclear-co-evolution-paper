@@ -254,6 +254,8 @@ cat("\nKeep genes present in AF:", length(genes_in_af), "\n")
 
 
 
+
+
 72 subunit af files
 /mnt/spareHD_2/nu_287/q2_parallelism/af_long_final_72genes_subunit_with_si.tsv.gz
 

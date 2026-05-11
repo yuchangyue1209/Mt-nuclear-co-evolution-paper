@@ -3631,6 +3631,10 @@ cat("\n[OK] done. OUTDIR:\n  ", OUTDIR, "\n", sep="")
 
 
 
+
+
+
+
 #cluster
 suppressPackageStartupMessages(library(data.table))
 
@@ -3721,3 +3725,518 @@ for(r in unique(W$region)){
   out2 <- perm_test(as.dist(1 - cor_abs), cl, nperm=2000)
   cat("\n===", r, "abs(ΔAF) (1-cor) ===\n"); print(out2)
 }
+
+
+
+
+
+#delta gene level～cluster Rscript /mnt/spareHD_2/nu_287/_assoc72_subunit/21_geneLevel_deltaAF_vs_mtCluster_plus_treePC12.noAMO.R
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages({
+  library(data.table)
+})
+
+# ============================================================
+# gene-level deltaAF ~ mtCluster + treePC1 + treePC2   (no AMO)
+#
+# 思路：
+# 1) 从 AF long 表计算每个 gene × pop 的 geneMeanAF
+# 2) 以 region-specific marine ancestor 计算 gene-level deltaAF
+#    - Alaska: deltaAF = geneMeanAF(pop) - geneMeanAF(RS)
+#    - BC    : deltaAF = geneMeanAF(pop) - geneMeanAF(SAY)
+# 3) 对每个 gene 跑 nested-model F-test:
+#      reduced: deltaAF ~ treePC1 + treePC2
+#      full   : deltaAF ~ mtCluster + treePC1 + treePC2
+# 4) 输出 per-gene 结果、summary、top genes、以及用于作图的 deltaAF 表
+# ============================================================
+
+AF_FILE   <- "/mnt/spareHD_2/nu_287/q2_parallelism/af_long_final_72genes_subunit_with_si.tsv.gz"
+CL_FILE   <- "/mnt/spareHD_2/nu_287/q2_parallelism/mtCluster_manual.tsv"
+COV_FILE  <- "/mnt/spareHD_2/nu_287/covariates.treePC.tsv"
+
+OUTDIR <- "/mnt/spareHD_2/nu_287/_assoc72_subunit/geneDeltaAF_vs_mtCluster_noAMO"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+OUT_DELTA <- file.path(OUTDIR, "geneLevel_deltaAF_table.noAMO.tsv.gz")
+OUT_FULL  <- file.path(OUTDIR, "geneLevel_deltaAF_LM_byGene_mtCluster_plus_treePC12.noAMO.tsv.gz")
+OUT_SUM   <- file.path(OUTDIR, "geneLevel_deltaAF_summary_mtCluster.noAMO.tsv")
+OUT_TOP10 <- file.path(OUTDIR, "geneLevel_deltaAF_top10_mtCluster.noAMO.tsv")
+
+MIN_DEPTH    <- 10L
+MIN_SNP_GENE <- 20L   # 一个 gene 在全数据里累计至少 20 个 SNP
+MIN_POP_GENE <- 6L    # 一个 gene 至少要有 6 个 freshwater populations 才建模
+
+# ----------------------------
+# helper
+# ----------------------------
+normalize_pop <- function(x){
+  x <- toupper(x)
+  x <- gsub("^(\\d+_)?([A-Z]+)(?:_S\\d+)?$", "\\2", x, perl = TRUE)
+  x
+}
+
+lambda_gc <- function(p){
+  p <- p[is.finite(p) & p > 0 & p <= 1]
+  if(length(p) < 10) return(NA_real_)
+  chisq <- qchisq(1 - p, df = 1)
+  median(chisq, na.rm = TRUE) / qchisq(0.5, df = 1)
+}
+
+AK_pops <- c("FG","LG","SR","SL","TL","WB","WT","WK","LB")
+BC_pops <- c("SWA","THE","JOE","BEA","MUC","PYE","ROS","BOOT","ECHO","LAW","GOS","ROB")
+
+# ----------------------------
+# per-gene nested model
+# ----------------------------
+lm_cluster_ftest_gene <- function(d){
+  d <- copy(d)
+  d <- d[
+    is.finite(deltaAF) &
+    is.finite(treePC1) &
+    is.finite(treePC2) &
+    !is.na(mtCluster)
+  ]
+
+  n_pop <- uniqueN(d$pop)
+  n_cluster <- uniqueN(d$mtCluster)
+
+  if(n_pop < MIN_POP_GENE){
+    return(list(
+      p = NA_real_, F = NA_real_, df1 = NA_real_, df2 = NA_real_,
+      n_pop = n_pop, n_cluster = n_cluster,
+      R2_red = NA_real_, R2_full = NA_real_,
+      adjR2_red = NA_real_, adjR2_full = NA_real_
+    ))
+  }
+
+  if(n_cluster < 2){
+    return(list(
+      p = NA_real_, F = NA_real_, df1 = NA_real_, df2 = NA_real_,
+      n_pop = n_pop, n_cluster = n_cluster,
+      R2_red = NA_real_, R2_full = NA_real_,
+      adjR2_red = NA_real_, adjR2_full = NA_real_
+    ))
+  }
+
+  fit_red  <- try(lm(deltaAF ~ treePC1 + treePC2, data = d), silent = TRUE)
+  fit_full <- try(lm(deltaAF ~ mtCluster + treePC1 + treePC2, data = d), silent = TRUE)
+
+  if(inherits(fit_red, "try-error") || inherits(fit_full, "try-error")){
+    return(list(
+      p = NA_real_, F = NA_real_, df1 = NA_real_, df2 = NA_real_,
+      n_pop = n_pop, n_cluster = n_cluster,
+      R2_red = NA_real_, R2_full = NA_real_,
+      adjR2_red = NA_real_, adjR2_full = NA_real_
+    ))
+  }
+
+  a <- try(anova(fit_red, fit_full), silent = TRUE)
+  sm_red  <- summary(fit_red)
+  sm_full <- summary(fit_full)
+
+  if(inherits(a, "try-error") || nrow(a) < 2){
+    return(list(
+      p = NA_real_, F = NA_real_, df1 = NA_real_, df2 = NA_real_,
+      n_pop = n_pop, n_cluster = n_cluster,
+      R2_red = sm_red$r.squared,
+      R2_full = sm_full$r.squared,
+      adjR2_red = sm_red$adj.r.squared,
+      adjR2_full = sm_full$adj.r.squared
+    ))
+  }
+
+  list(
+    p = as.numeric(a$`Pr(>F)`[2]),
+    F = as.numeric(a$F[2]),
+    df1 = as.numeric(a$Df[2]),
+    df2 = as.numeric(a$Res.Df[2]),
+    n_pop = n_pop,
+    n_cluster = n_cluster,
+    R2_red = sm_red$r.squared,
+    R2_full = sm_full$r.squared,
+    adjR2_red = sm_red$adj.r.squared,
+    adjR2_full = sm_full$adj.r.squared
+  )
+}
+
+# ----------------------------
+# 1) Read AF
+# ----------------------------
+cat("[read] AF: ", AF_FILE, "\n", sep = "")
+AF <- fread(AF_FILE)
+
+need_af <- c("chr","pos","gene","pop","af","depth")
+miss_af <- setdiff(need_af, names(AF))
+if(length(miss_af) > 0){
+  stop("AF missing columns: ", paste(miss_af, collapse = ", "))
+}
+
+AF[, pop := normalize_pop(pop)]
+AF <- AF[pop != "AMO" & depth >= MIN_DEPTH]
+
+cat("[info] AF rows after filters: ", nrow(AF), "\n", sep = "")
+cat("[info] unique genes in AF: ", uniqueN(AF$gene), "\n", sep = "")
+cat("[info] unique pops in AF: ", uniqueN(AF$pop), "\n", sep = "")
+
+# ----------------------------
+# 2) Gene-level AF per pop
+# ----------------------------
+cat("[summarize] gene mean AF per pop\n")
+GAF <- AF[, .(
+  n_snps = .N,
+  geneMeanAF = mean(af, na.rm = TRUE)
+), by = .(gene, pop)]
+
+# gene 累计 SNP 太少就过滤
+G_tot <- GAF[, .(n_snps_total = sum(n_snps)), by = gene]
+GAF <- merge(GAF, G_tot, by = "gene", all.x = TRUE)
+GAF <- GAF[n_snps_total >= MIN_SNP_GENE]
+
+cat("[info] genes kept after MIN_SNP_GENE filter: ", uniqueN(GAF$gene), "\n", sep = "")
+
+# ----------------------------
+# 3) Add region label
+# ----------------------------
+GAF[, region := fifelse(pop %in% AK_pops, "AK",
+                 fifelse(pop %in% BC_pops, "BC",
+                 fifelse(pop %in% c("RS", "SAY"), "Marine", NA_character_)))]
+
+GAF <- GAF[!is.na(region)]
+
+cat("[info] region table in GAF:\n")
+print(GAF[, .N, by = region][order(region)])
+
+# ----------------------------
+# 4) Build marine baseline per gene × region
+# ----------------------------
+marine_geneAF <- GAF[pop %in% c("RS", "SAY"), .(
+  gene, pop, geneMeanAF, n_snps
+)]
+
+marine_geneAF <- merge(
+  marine_geneAF,
+  data.table(pop = c("RS", "SAY"), region = c("AK", "BC")),
+  by = "pop",
+  all.x = TRUE
+)
+
+setnames(marine_geneAF, "geneMeanAF", "marineAF")
+setnames(marine_geneAF, "n_snps", "marine_n_snps")
+
+marine_geneAF <- marine_geneAF[, .(
+  gene, region, marine_pop = pop, marineAF, marine_n_snps
+)]
+
+cat("[info] marine baseline rows: ", nrow(marine_geneAF), "\n", sep = "")
+
+# ----------------------------
+# 5) Keep freshwater populations and compute deltaAF
+# ----------------------------
+FW <- GAF[region %in% c("AK", "BC") & !(pop %in% c("RS","SAY"))]
+
+DELTA <- merge(
+  FW,
+  marine_geneAF[, .(gene, region, marine_pop, marineAF, marine_n_snps)],
+  by = c("gene", "region"),
+  all.x = TRUE,
+  allow.cartesian = FALSE
+)
+
+DELTA[, deltaAF := geneMeanAF - marineAF]
+
+DELTA <- DELTA[
+  is.finite(deltaAF) &
+  is.finite(geneMeanAF) &
+  is.finite(marineAF)
+]
+
+cat("[info] deltaAF rows: ", nrow(DELTA), "\n", sep = "")
+cat("[info] genes in deltaAF: ", uniqueN(DELTA$gene), "\n", sep = "")
+cat("[info] freshwater pops in deltaAF: ", uniqueN(DELTA$pop), "\n", sep = "")
+
+# ----------------------------
+# 6) Read mtCluster
+# ----------------------------
+cat("[read] mtCluster: ", CL_FILE, "\n", sep = "")
+CL <- fread(CL_FILE, sep = "\t", header = TRUE, fill = TRUE)
+CL <- CL[!(is.na(pop) | pop == "")]
+
+need_cl <- c("pop","mtCluster")
+miss_cl <- setdiff(need_cl, names(CL))
+if(length(miss_cl) > 0){
+  stop("Cluster file missing columns: ", paste(miss_cl, collapse = ", "))
+}
+
+CL[, pop := normalize_pop(pop)]
+CL <- CL[pop != "AMO"]
+CL <- unique(CL[, .(pop, mtCluster)], by = "pop")
+CL[, mtCluster := factor(mtCluster)]
+
+cat("[info] pops per mtCluster:\n")
+print(as.data.table(table(CL$mtCluster))[order(-N)])
+
+# ----------------------------
+# 7) Read treePC
+# ----------------------------
+cat("[read] treePC: ", COV_FILE, "\n", sep = "")
+COV <- fread(COV_FILE)
+
+need_cov <- c("pop","treePC1","treePC2")
+miss_cov <- setdiff(need_cov, names(COV))
+if(length(miss_cov) > 0){
+  stop("COV missing columns: ", paste(miss_cov, collapse = ", "))
+}
+
+COV[, pop := normalize_pop(pop)]
+COV <- COV[pop != "AMO"]
+COV <- unique(COV[, .(pop, treePC1, treePC2)], by = "pop")
+
+# ----------------------------
+# 8) Merge predictors into deltaAF table
+# ----------------------------
+PRED <- merge(COV, CL, by = "pop", all = FALSE)
+
+DT <- merge(
+  DELTA,
+  PRED,
+  by = "pop",
+  all = FALSE
+)
+
+DT <- DT[
+  is.finite(deltaAF) &
+  is.finite(treePC1) &
+  is.finite(treePC2) &
+  !is.na(mtCluster)
+]
+
+cat("[debug] columns in DT:\n")
+print(names(DT))
+
+want_cols <- c(
+  "gene","pop","region","marine_pop",
+  "geneMeanAF","marineAF","deltaAF",
+  "n_snps","marine_n_snps","n_snps_total",
+  "treePC1","treePC2","mtCluster"
+)
+want_cols <- want_cols[want_cols %in% names(DT)]
+setcolorder(DT, want_cols)
+
+fwrite(DT, OUT_DELTA, sep = "\t", compress = "gzip")
+cat("[write] ", OUT_DELTA, "\n", sep = "")
+
+cat("[info] final modeling rows: ", nrow(DT), "\n", sep = "")
+cat("[info] final genes: ", uniqueN(DT$gene), "\n", sep = "")
+cat("[info] final pops: ", uniqueN(DT$pop), "\n", sep = "")
+cat("[info] final cluster counts:\n")
+print(DT[, .N, by = mtCluster][order(-N)])
+
+# ----------------------------
+# 9) Per-gene model
+# ----------------------------
+cat("[lm] per gene nested-model F-test for mtCluster\n")
+
+RES <- DT[, {
+  out <- lm_cluster_ftest_gene(.SD)
+  if(!is.finite(out$p)) NULL else .(
+    n_pop      = out$n_pop,
+    n_cluster  = out$n_cluster,
+    df1        = out$df1,
+    df2        = out$df2,
+    F_cluster  = out$F,
+    p_cluster  = out$p,
+    R2_red     = out$R2_red,
+    R2_full    = out$R2_full,
+    dR2        = out$R2_full - out$R2_red,
+    adjR2_red  = out$adjR2_red,
+    adjR2_full = out$adjR2_full,
+    dadjR2     = out$adjR2_full - out$adjR2_red
+  )
+}, by = .(gene)]
+
+RES <- merge(
+  RES,
+  unique(DT[, .(gene, n_snps_total)], by = "gene"),
+  by = "gene",
+  all.x = TRUE
+)
+
+RES[, q_cluster := p.adjust(p_cluster, method = "BH")]
+setorder(RES, q_cluster, p_cluster)
+
+fwrite(RES, OUT_FULL, sep = "\t", compress = "gzip")
+cat("[write] ", OUT_FULL, "\n", sep = "")
+
+# ----------------------------
+# 10) Summary
+# ----------------------------
+SUM <- RES[, .(
+  n_genes       = .N,
+  min_p         = min(p_cluster, na.rm = TRUE),
+  med_p         = median(p_cluster, na.rm = TRUE),
+  mean_p        = mean(p_cluster, na.rm = TRUE),
+  prop_p05      = mean(p_cluster < 0.05, na.rm = TRUE),
+  prop_p10      = mean(p_cluster < 0.10, na.rm = TRUE),
+  n_q05         = sum(q_cluster < 0.05, na.rm = TRUE),
+  n_q10         = sum(q_cluster < 0.10, na.rm = TRUE),
+  lambda_gc     = lambda_gc(p_cluster),
+  mean_dR2      = mean(dR2, na.rm = TRUE),
+  median_dR2    = median(dR2, na.rm = TRUE),
+  mean_dadjR2   = mean(dadjR2, na.rm = TRUE),
+  median_dadjR2 = median(dadjR2, na.rm = TRUE)
+)]
+
+fwrite(SUM, OUT_SUM, sep = "\t")
+cat("[write] ", OUT_SUM, "\n", sep = "")
+print(SUM)
+
+# ----------------------------
+# 11) Top 10 genes
+# ----------------------------
+TOP10 <- head(RES, 10)
+fwrite(TOP10, OUT_TOP10, sep = "\t")
+cat("[write] ", OUT_TOP10, "\n", sep = "")
+
+cat("\n=== top 10 genes by p_cluster ===\n")
+print(TOP10)
+
+cat("\n[OK] done. Output dir:\n  ", OUTDIR, "\n", sep = "")
+
+
+
+
+
+#delta/ af gene level /mnt/spareHD_2/nu_287/_assoc72_subunit/22_gene_AF_vs_deltaAF_summary.R
+
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages({
+  library(data.table)
+})
+
+# ==============================
+# 输入文件
+# ==============================
+AF_SNP_FILE <- "/mnt/spareHD_2/nu_287/_assoc72_subunit/assoc72_subunit_noAMO_perSNP.tsv.gz"
+DELTA_FILE  <- "/mnt/spareHD_2/nu_287/_assoc72_subunit/geneDeltaAF_vs_mtCluster_noAMO/geneLevel_deltaAF_LM_byGene_mtCluster_plus_treePC12.noAMO.tsv.gz"
+
+OUTFILE <- "/mnt/spareHD_2/nu_287/_assoc72_subunit/gene_AF_vs_deltaAF_summary.tsv"
+
+# ==============================
+# 1) SNP-level AF -> gene-level summary
+# ==============================
+cat("[read] SNP-level AF\n")
+AF <- fread(cmd = paste("zcat", shQuote(AF_SNP_FILE)))
+
+cat("[debug] AF columns:\n")
+print(names(AF))
+
+# 更稳地找 p-value 列
+candidate_pcols <- c("p_mitoPC", "p_cluster", "p", "pval", "p_value")
+pcol <- candidate_pcols[candidate_pcols %in% names(AF)][1]
+
+if (is.na(pcol)) {
+  # 退而求其次：找以 p_ 开头或完全等于 p 的列，避免抓到 pos
+  pcol2 <- grep("^(p$|p_|pval$|pvalue$|p_value$)", names(AF), value = TRUE)
+  if (length(pcol2) > 0) {
+    pcol <- pcol2[1]
+  } else {
+    stop("Cannot find p-value column in AF file. Columns are: ",
+         paste(names(AF), collapse = ", "))
+  }
+}
+
+cat("[info] using p column: ", pcol, "\n", sep = "")
+
+if (!("gene" %in% names(AF))) {
+  stop("AF file is missing 'gene' column.")
+}
+
+AF_SUM <- AF[, .(
+  AF_nSNP       = .N,
+  AF_min_p      = min(get(pcol), na.rm = TRUE),
+  AF_propSig    = mean(get(pcol) < 0.05, na.rm = TRUE),
+  AF_propStrong = mean(get(pcol) < 1e-3, na.rm = TRUE)
+), by = gene]
+
+# ==============================
+# 2) deltaAF gene-level
+# ==============================
+cat("[read] deltaAF gene-level\n")
+DELTA <- fread(cmd = paste("zcat", shQuote(DELTA_FILE)))
+
+cat("[debug] DELTA columns:\n")
+print(names(DELTA))
+
+if (!("gene" %in% names(DELTA))) {
+  stop("DELTA file is missing 'gene' column.")
+}
+if (!all(c("p_cluster", "q_cluster", "dR2") %in% names(DELTA))) {
+  stop("DELTA file must contain: gene, p_cluster, q_cluster, dR2")
+}
+
+DELTA_SUM <- DELTA[, .(
+  gene,
+  deltaAF_p   = p_cluster,
+  deltaAF_q   = q_cluster,
+  deltaAF_dR2 = dR2
+)]
+
+# 如果每个 gene 只有一行，这里不会变；如果意外重复，就保留唯一一行
+DELTA_SUM <- unique(DELTA_SUM, by = "gene")
+
+# ==============================
+# 3) merge
+# ==============================
+DT <- merge(AF_SUM, DELTA_SUM, by = "gene", all = TRUE)
+
+# ==============================
+# 4) 分类逻辑
+# ==============================
+DT[, AF_signal := fifelse(
+  AF_propSig > 0.20, "strong",
+  fifelse(AF_propSig > 0.05, "moderate", "weak")
+)]
+
+DT[, delta_signal := fifelse(
+  deltaAF_p < 0.05, "strong",
+  fifelse(deltaAF_p < 0.10, "moderate", "weak")
+)]
+
+# ==============================
+# 5) interpretation
+# ==============================
+DT[, interpretation := fifelse(
+  AF_signal == "strong" & delta_signal == "weak",
+  "lineage background (AF only)",
+  fifelse(
+    AF_signal == "strong" & delta_signal != "weak",
+    "possible mitonuclear adaptation",
+    fifelse(
+      AF_signal != "strong" & delta_signal == "strong",
+      "adaptive shift (deltaAF-driven)",
+      "weak / no clear signal"
+    )
+  )
+)]
+
+# 可选：做一个综合排序
+DT[, AF_rank_score := -log10(AF_min_p)]
+DT[, delta_rank_score := -log10(deltaAF_p)]
+
+# ==============================
+# 6) 排序
+# 先按 deltaAF，再按 AF
+# ==============================
+setorder(DT, deltaAF_p, AF_min_p)
+
+# ==============================
+# 7) 输出
+# ==============================
+fwrite(DT, OUTFILE, sep = "\t")
+cat("[write] ", OUTFILE, "\n", sep = "")
+
+cat("\n=== TOP 20 genes ===\n")
+print(DT[1:20])
+
+cat("\n=== selected genes ===\n")
+print(DT[gene %in% c("hccsb", "cox5a", "ndufa10", "atp5po", "ndufa12", "ndufs5")])

@@ -755,3 +755,298 @@ print(p)
 
 
 = summary === region n_snps prop_p05 prop_p10 min_p med_p <char> <int> <num> <num> <num> <num> 1: AK 42733 0.06877605 0.07079702 5.009329e-70 0.7044233 2: BC 42695 0.01165226 0.01872218 4.832982e-64 0.2948301 === driver cluster share among significant SNPs p<0.05 === region driver_cluster N prop <char> <char> <int> <num> 1: AK C4_GOS 572 0.52525253 2: AK C1_AK 364 0.33425161 3: AK C3_MarineLike 153 0.14049587 4: BC C2_Recent 61 0.68539326 5: BC C1_AK 18 0.20224719 6: BC C3_MarineLike 6 0.06741573 7: BC C4_GOS 4 0.0449438
+
+
+
+
+
+#vol plot
+
+#!/usr/bin/env Rscript
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+  library(ggrepel)
+})
+
+IN_LM <- "/mnt/spareHD_2/nu_287/q2_parallelism/q2_deltaAF_mtCluster_treeBased_bayenvStyle_r2_0.2_perm/LM_perSNP_mtCluster_plus_treePC12.LDpruned_r2_0.2.tsv.gz"
+
+OUTDIR <- "/mnt/spareHD_2/nu_287/q2_parallelism/q2_deltaAF_mtCluster_treeBased_bayenvStyle_r2_0.2_perm/figures_mtCluster"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+while (dev.cur() > 1) dev.off()
+
+LM <- fread(cmd = paste("zcat", shQuote(IN_LM)))
+
+LM <- LM[
+  is.finite(p_cluster) &
+    p_cluster > 0 &
+    p_cluster <= 1
+]
+
+LM[, logp := -log10(p_cluster)]
+LM[, pos := as.numeric(pos)]
+LM[, driver_mu := as.numeric(driver_mu)]
+LM[, F_cluster := as.numeric(F_cluster)]
+
+LM <- LM[
+  !is.na(chr) &
+    is.finite(pos) &
+    is.finite(logp)
+]
+
+cat("Rows used:", nrow(LM), "\n")
+cat("Regions:", paste(unique(LM$region), collapse = ", "), "\n")
+
+# =========================
+# Manhattan
+# =========================
+
+chr_order <- unique(LM[order(chr), chr])
+LM[, chr := factor(chr, levels = chr_order)]
+
+chr_info <- LM[, .(
+  chr_len = max(pos, na.rm = TRUE)
+), by = chr][order(chr)]
+
+chr_info[, offset := shift(cumsum(chr_len), fill = 0)]
+
+LM <- merge(
+  LM,
+  chr_info[, .(chr, offset)],
+  by = "chr",
+  all.x = TRUE
+)
+
+LM[, pos_cum := pos + offset]
+
+axis_df <- LM[, .(
+  center = mean(range(pos_cum, na.rm = TRUE))
+), by = chr][order(chr)]
+
+TOP_MAN <- LM[order(p_cluster), head(.SD, 10), by = region]
+TOP_MAN[, label := gene]
+
+p_manhattan <- ggplot(
+  LM,
+  aes(x = pos_cum, y = logp, color = chr)
+) +
+  geom_point(alpha = 0.65, size = 0.7) +
+  geom_hline(
+    yintercept = -log10(0.05),
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_hline(
+    yintercept = -log10(0.10),
+    linetype = "dotted",
+    linewidth = 0.4
+  ) +
+  geom_text_repel(
+    data = TOP_MAN,
+    aes(label = label),
+    size = 3,
+    max.overlaps = 30,
+    box.padding = 0.3,
+    min.segment.length = 0
+  ) +
+  facet_wrap(~ region, ncol = 1, scales = "free_y") +
+  scale_x_continuous(
+    breaks = axis_df$center,
+    labels = as.character(axis_df$chr),
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_color_manual(
+    values = rep(c("grey25", "grey65"), length.out = length(chr_order))
+  ) +
+  labs(
+    x = "Chromosome",
+    y = expression(-log[10](p)),
+    title = "mtCluster association Manhattan plot",
+    subtitle = expression(delta*AF~"~ mtCluster + treePC1 + treePC2")
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+ggsave(
+  file.path(OUTDIR, "Fig_mtCluster_association_Manhattan.png"),
+  p_manhattan,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig_mtCluster_association_Manhattan.pdf"),
+  p_manhattan,
+  width = 12,
+  height = 7
+)
+
+# =========================
+# Volcano / association-strength plot
+# =========================
+
+VOL <- LM[
+  is.finite(F_cluster) &
+    is.finite(logp)
+]
+
+VOL[, sig := fifelse(p_cluster < 0.05, "p < 0.05", "NS")]
+
+# label strongest non-duplicated genes per region
+TOP_VOL <- VOL[logp > 5]
+TOP_VOL <- TOP_VOL[order(region, -logp)]
+TOP_VOL <- TOP_VOL[, .SD[!duplicated(gene)], by = region]
+TOP_VOL <- TOP_VOL[, head(.SD, 8), by = region]
+
+p_volcano_F <- ggplot(
+  VOL,
+  aes(x = F_cluster, y = logp)
+) +
+  geom_point(
+    aes(color = driver_cluster, shape = sig),
+    alpha = 0.75,
+    size = 1.6
+  ) +
+  geom_hline(
+    yintercept = -log10(0.05),
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_text_repel(
+    data = TOP_VOL,
+    aes(label = gene),
+    size = 3.2,
+    max.overlaps = 30,
+    box.padding = 0.35,
+    min.segment.length = 0
+  ) +
+  facet_wrap(~ region, scales = "free_x") +
+  coord_cartesian(ylim = c(0, 15)) +
+  labs(
+    x = "F statistic for mtCluster association",
+    y = expression(-log[10](p)),
+    color = "Driver cluster",
+    shape = NULL,
+    title = "mtCluster-associated nuclear SNPs",
+    subtitle = expression(delta*AF~"~ mtCluster + treePC1 + treePC2")
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+ggsave(
+  file.path(OUTDIR, "Fig_mtCluster_association_Fstat_Volcano_cappedY15.png"),
+  p_volcano_F,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig_mtCluster_association_Fstat_Volcano_cappedY15.pdf"),
+  p_volcano_F,
+  width = 9,
+  height = 5
+)
+
+# =========================
+# Optional old driver_mu volcano
+# =========================
+
+VOL2 <- LM[
+  is.finite(driver_mu) &
+    is.finite(logp)
+]
+
+VOL2[, sig := fifelse(p_cluster < 0.05, "p < 0.05", "NS")]
+
+TOP_VOL2 <- VOL2[logp > 5]
+TOP_VOL2 <- TOP_VOL2[order(region, -logp)]
+TOP_VOL2 <- TOP_VOL2[, .SD[!duplicated(gene)], by = region]
+TOP_VOL2 <- TOP_VOL2[, head(.SD, 8), by = region]
+
+p_volcano_mu <- ggplot(
+  VOL2,
+  aes(x = driver_mu, y = logp)
+) +
+  geom_point(
+    aes(color = driver_cluster, shape = sig),
+    alpha = 0.75,
+    size = 1.6
+  ) +
+  geom_hline(
+    yintercept = -log10(0.05),
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dotted",
+    linewidth = 0.4
+  ) +
+  geom_text_repel(
+    data = TOP_VOL2,
+    aes(label = gene),
+    size = 3.2,
+    max.overlaps = 30,
+    box.padding = 0.35,
+    min.segment.length = 0
+  ) +
+  facet_wrap(~ region, scales = "free") +
+  coord_cartesian(ylim = c(0, 15)) +
+  labs(
+    x = "Driver-cluster mean ΔAF",
+    y = expression(-log[10](p)),
+    color = "Driver cluster",
+    shape = NULL,
+    title = "mtCluster association volcano plot",
+    subtitle = "Y-axis capped at 15 for visualization"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+ggsave(
+  file.path(OUTDIR, "Fig_mtCluster_association_driverMu_Volcano_cappedY15.png"),
+  p_volcano_mu,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
+
+# =========================
+# Top table
+# =========================
+
+TOP_TABLE <- LM[order(p_cluster), head(.SD, 20), by = region]
+
+fwrite(
+  TOP_TABLE[, .(
+    region, snp, gene, chr, pos,
+    n, n_clusters,
+    F_cluster, p_cluster, q_cluster,
+    driver_cluster, driver_mu
+  )],
+  file.path(OUTDIR, "Top20_mtCluster_association_SNPs_by_region.tsv"),
+  sep = "\t"
+)
+
+cat("\nDone. Files saved in:\n")
+cat(OUTDIR, "\n")
+
+cat("\nCheck with:\n")
+cat("ls -lh ", OUTDIR, "\n", sep = "")
+
+

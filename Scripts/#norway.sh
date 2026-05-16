@@ -198,7 +198,164 @@ mv fst.csv mtgenome_noDloop_withNorway_fst.csv
 
 head mtgenome_noDloop_withNorway_fst.csv
 
+#nuclear
+#!/bin/bash
+set -euo pipefail
 
+# ==============================================================================
+# Norway worm / SRR27891779 nuclear mapping pipeline
+# cutadapt output -> bbduk -> bowtie2 -> sorted BAM -> dedup BAM
+# ==============================================================================
+
+# ---- sample ----
+PREFIX="SRR27891779"
+
+# ---- paths ----
+CUTADAPT_DIR="/work/cyu/poolseq/PPalign_output/cutadapt"
+TRIMMED_DIR="/mnt/spareHD_2/trimmed_poolseq"
+FASTQC_DIR="/mnt/spareHD_2/fastqc_reports_trimmed"
+
+REFERENCE="/work/cyu/stickleback_nuclear_only.fa"
+INDEX_PREFIX="/work/cyu/stickleback_nuclear_only"
+
+SAM_DIR="/mnt/spareHD_2/nuclear_mapped_poolseq"
+SORTED_BAM_DIR="/mnt/spareHD_2/nuclear_sorted_bam_poolseq"
+DEDUP_DIR="/mnt/spareHD_2/nuclear_marked_duplicates"
+
+THREADS=48
+
+# ---- Java / Picard ----
+export JAVA_HOME=/home/cyu/jdk-17.0.12
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# ---- input from cutadapt ----
+R1_CUT="$CUTADAPT_DIR/cutadapt_R1_${PREFIX}.fastq.gz"
+R2_CUT="$CUTADAPT_DIR/cutadapt_R2_${PREFIX}.fastq.gz"
+
+# ---- bbduk output ----
+R1_TRIM="$TRIMMED_DIR/trimmed_R1_${PREFIX}.fastq.gz"
+R2_TRIM="$TRIMMED_DIR/trimmed_R2_${PREFIX}.fastq.gz"
+BBDUK_LOG="$TRIMMED_DIR/${PREFIX}_bbduk_log.txt"
+
+# ---- mapping output ----
+SAM_FILE="$SAM_DIR/${PREFIX}.sam"
+RAW_BAM="$SORTED_BAM_DIR/${PREFIX}.bam"
+SORTED_BAM="$SORTED_BAM_DIR/${PREFIX}_sorted.bam"
+BOWTIE_LOG="$SAM_DIR/${PREFIX}_bowtie2.log"
+
+# ---- dedup output ----
+DEDUP_BAM="$DEDUP_DIR/${PREFIX}_dedup.bam"
+METRICS_FILE="$DEDUP_DIR/${PREFIX}_metrics.txt"
+PICARD_LOG="$DEDUP_DIR/${PREFIX}_picard.log"
+
+mkdir -p "$TRIMMED_DIR" "$FASTQC_DIR" "$SAM_DIR" "$SORTED_BAM_DIR" "$DEDUP_DIR"
+
+echo ">>> Checking inputs..."
+ls -lh "$R1_CUT" "$R2_CUT"
+
+# ==============================================================================
+# Step 1. bbduk quality trimming after cutadapt
+# ==============================================================================
+
+echo ">>> Step 1: bbduk quality trimming for $PREFIX"
+
+bbduk.sh \
+    in1="$R1_CUT" \
+    in2="$R2_CUT" \
+    out1="$R1_TRIM" \
+    out2="$R2_TRIM" \
+    trimq=20 \
+    minlength=25 \
+    ftl=10 \
+    tossbrokenreads=t \
+    threads="$THREADS" \
+    > "$BBDUK_LOG" 2>&1
+
+echo ">>> Running FastQC on trimmed files"
+
+fastqc "$R1_TRIM" "$R2_TRIM" \
+    --outdir="$FASTQC_DIR" \
+    --threads="$THREADS"
+
+# ==============================================================================
+# Step 2. Build Bowtie2 index if missing
+# ==============================================================================
+
+if [[ ! -f "${INDEX_PREFIX}.1.bt2" && ! -f "${INDEX_PREFIX}.1.bt2l" ]]; then
+    echo ">>> Building Bowtie2 index..."
+    bowtie2-build "$REFERENCE" "$INDEX_PREFIX"
+else
+    echo ">>> Bowtie2 index already exists."
+fi
+
+# ==============================================================================
+# Step 3. Map to nuclear reference
+# ==============================================================================
+
+echo ">>> Step 3: Mapping $PREFIX to nuclear reference"
+
+bowtie2 -x "$INDEX_PREFIX" \
+    -1 "$R1_TRIM" \
+    -2 "$R2_TRIM" \
+    -p "$THREADS" \
+    --no-mixed \
+    --no-discordant \
+    -X 2000 \
+    -S "$SAM_FILE" \
+    > "$BOWTIE_LOG" 2>&1
+
+echo ">>> Mapping rate:"
+grep "overall alignment rate" "$BOWTIE_LOG" || true
+
+# ==============================================================================
+# Step 4. SAM -> MAPQ-filtered BAM -> sorted BAM
+# ==============================================================================
+
+echo ">>> Step 4: Convert SAM to BAM with MAPQ >= 20"
+
+samtools view -b -q 20 "$SAM_FILE" > "$RAW_BAM"
+
+echo ">>> Sorting BAM"
+
+samtools sort -@ "$THREADS" -o "$SORTED_BAM" "$RAW_BAM"
+
+echo ">>> Indexing sorted BAM"
+
+samtools index "$SORTED_BAM"
+
+# ==============================================================================
+# Step 5. Remove duplicates with Picard
+# ==============================================================================
+
+echo ">>> Step 5: Mark/remove duplicates with Picard"
+
+picard MarkDuplicates \
+    I="$SORTED_BAM" \
+    O="$DEDUP_BAM" \
+    M="$METRICS_FILE" \
+    REMOVE_DUPLICATES=true \
+    ASSUME_SORTED=true \
+    VALIDATION_STRINGENCY=LENIENT \
+    > "$PICARD_LOG" 2>&1
+
+echo ">>> Indexing dedup BAM"
+
+samtools index "$DEDUP_BAM"
+
+# ==============================================================================
+# Optional cleanup
+# ==============================================================================
+
+echo ">>> Cleaning intermediate SAM and raw BAM"
+rm -f "$SAM_FILE" "$RAW_BAM"
+
+echo "✅ Finished Norway nuclear processing: $PREFIX"
+
+echo "Final dedup BAM:"
+ls -lh "$DEDUP_BAM" "$DEDUP_BAM.bai"
+
+echo "Picard metrics:"
+ls -lh "$METRICS_FILE"
 
 
 
@@ -951,5 +1108,79 @@ print(p1)
 
 
 
-#pbsn1
-#max pbs
+cd /work/cyu/gene_fst_work_withNorway/pbs_mt_vs_nuclear_NorwayOutgroup
+nano perm_OXPHOS72_noAMO.R
+library(data.table)
+
+# =========================
+# INPUT
+# =========================
+FILE <- "OXPHOS72_merged_mt_nuclear_PBS_NorwayOutgroup_by_gene_population.tsv"
+OUT  <- "OXPHOS72_gene_correlation_perm_noAMO.tsv"
+
+dt <- fread(FILE)
+
+# =========================
+# remove AMO
+# =========================
+dt <- dt[focal != "AMO"]
+
+set.seed(123)
+
+# =========================
+# permutation function
+# =========================
+perm_test <- function(x, y, nperm = 10000) {
+  r_obs <- cor(x, y)
+
+  r_perm <- replicate(nperm, cor(x, sample(y)))
+  p <- mean(abs(r_perm) >= abs(r_obs))
+
+  list(r = r_obs, p = p)
+}
+
+# =========================
+# run per gene
+# =========================
+res <- dt[
+  is.finite(nu_PBS) & is.finite(mt_PBS),
+  {
+    if (.N >= 5 && var(nu_PBS) > 0 && var(mt_PBS) > 0) {
+      pt <- perm_test(nu_PBS, mt_PBS)
+
+      .(
+        n_pop = .N,
+        cor_r = pt$r,
+        p_perm = pt$p,
+        mean_nu_PBS = mean(nu_PBS),
+        mean_mt_PBS = mean(mt_PBS)
+      )
+    } else {
+      .(
+        n_pop = .N,
+        cor_r = NA_real_,
+        p_perm = NA_real_,
+        mean_nu_PBS = mean(nu_PBS),
+        mean_mt_PBS = mean(mt_PBS)
+      )
+    }
+  },
+  by = gene
+]
+
+# =========================
+# FDR correction
+# =========================
+res[, p_bh := p.adjust(p_perm, method = "BH")]
+
+setorder(res, p_perm, -cor_r)
+
+# =========================
+# save
+# =========================
+fwrite(res, OUT, sep = "\t")
+
+cat("\n=== TOP genes (perm, no AMO) ===\n")
+print(head(res, 20))
+
+

@@ -417,3 +417,198 @@ setorder(res, qHabitat, qRegion)
 fwrite(res, OUT, sep = "\t")
 cat("Wrote:", OUT, "\n")
 print(res)
+
+
+
+##mt la long
+
+
+
+nano /mnt/spareHD_2/nu_287/_assoc72_subunit/mt_geography_latlon_PC12.R
+#!/usr/bin/env Rscript
+
+suppressPackageStartupMessages({
+  library(data.table)
+})
+
+# ==========================================================
+# mtDNA ~ Geography
+# Predictors: Latitude + Longitude
+#
+# E0: mitoPC1/2 ~ Latitude + Longitude
+# E1: mitoPC1/2 ~ Latitude + Longitude + treePC1 + treePC2
+# ==========================================================
+
+COV  <- "/mnt/spareHD_2/nu_287/covariates.treePC.tsv"
+META <- "/mnt/spareHD_2/nu_287/meta_pop_env.csv"
+
+OUTDIR <- "/mnt/spareHD_2/nu_287/_assoc72_subunit/mt_geography_latlon"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+OUT_LM  <- file.path(OUTDIR, "mt_latlon_lm_PC12.tsv")
+OUT_MAN <- file.path(OUTDIR, "mt_latlon_manova_PC12.tsv")
+
+pick_first <- function(x, candidates){
+  hit <- candidates[candidates %in% x]
+  if(length(hit) == 0) return(NA_character_)
+  hit[1]
+}
+
+norm_pop <- function(x){
+  x <- toupper(trimws(as.character(x)))
+  x <- sub("^[0-9]+_", "", x)
+  x <- sub("_S[0-9]+$", "", x)
+  x
+}
+
+grab_lm <- function(fit, tag, response){
+  s <- summary(fit)
+  co <- as.data.table(s$coefficients, keep.rownames = "term")
+  setnames(
+    co,
+    old = c("Estimate", "Std. Error", "t value", "Pr(>|t|)"),
+    new = c("beta", "se", "t", "p")
+  )
+  co[, model := tag]
+  co[, response := response]
+  co[, R2 := s$r.squared]
+  co[, adjR2 := s$adj.r.squared]
+  co[, n := nobs(fit)]
+  co[]
+}
+
+grab_manova <- function(man, tag){
+  tests <- c("Pillai", "Wilks", "Hotelling-Lawley", "Roy")
+
+  rbindlist(lapply(tests, function(tt){
+    a <- summary(man, test = tt)$stats
+    a <- a[, c("approx F", "num Df", "den Df", "Pr(>F)"), drop = FALSE]
+
+    x <- as.data.table(a, keep.rownames = "term")
+    setnames(
+      x,
+      old = c("approx F", "num Df", "den Df", "Pr(>F)"),
+      new = c("F", "numDf", "denDf", "p")
+    )
+
+    x[, test := tt]
+    x[, model := tag]
+    x[, n := nrow(model.frame(man))]
+    x[]
+  }), fill = TRUE)
+}
+
+# ==========================================================
+# Read covariates
+# ==========================================================
+cov <- fread(COV)
+meta <- fread(META)
+
+cov_pop <- pick_first(names(cov), c("pop", "Population", "Pop", "population"))
+if(is.na(cov_pop)) stop("COV missing pop column")
+setnames(cov, cov_pop, "pop")
+cov[, pop := norm_pop(pop)]
+
+m1 <- pick_first(names(cov), c("mitoPC1", "mtPC1"))
+m2 <- pick_first(names(cov), c("mitoPC2", "mtPC2"))
+if(is.na(m1) | is.na(m2)) stop("COV missing mitoPC1/mitoPC2")
+
+setnames(cov, m1, "mitoPC1")
+setnames(cov, m2, "mitoPC2")
+
+if(!all(c("treePC1", "treePC2") %in% names(cov))){
+  stop("COV missing treePC1/treePC2")
+}
+
+# ==========================================================
+# Read metadata
+# ==========================================================
+m_pop <- pick_first(names(meta), c("Population", "pop", "Pop", "population"))
+m_lat <- pick_first(names(meta), c("Latitude", "lat", "latitude"))
+m_lon <- pick_first(names(meta), c("Longitude", "lon", "longitude"))
+
+if(any(is.na(c(m_pop, m_lat, m_lon)))){
+  stop("META missing required columns: Population/Latitude/Longitude")
+}
+
+setnames(meta, m_pop, "pop")
+setnames(meta, m_lat, "Latitude")
+setnames(meta, m_lon, "Longitude")
+
+meta[, pop := norm_pop(pop)]
+meta[, Latitude := as.numeric(Latitude)]
+meta[, Longitude := as.numeric(Longitude)]
+
+meta_geo <- unique(meta[, .(pop, Latitude, Longitude)])
+
+# ==========================================================
+# Merge
+# ==========================================================
+dt <- merge(
+  cov[, .(pop, mitoPC1, mitoPC2, treePC1, treePC2)],
+  meta_geo,
+  by = "pop",
+  all = FALSE
+)
+
+dt <- dt[
+  is.finite(mitoPC1) &
+  is.finite(mitoPC2) &
+  is.finite(treePC1) &
+  is.finite(treePC2) &
+  is.finite(Latitude) &
+  is.finite(Longitude)
+]
+
+dt[, Latitude_z := as.numeric(scale(Latitude))]
+dt[, Longitude_z := as.numeric(scale(Longitude))]
+
+cat("[diag] n pops =", nrow(dt), "\n")
+print(dt[, .(pop, Latitude, Longitude, Latitude_z, Longitude_z)])
+
+if(nrow(dt) < 8) stop("Too few populations after merge/filtering.")
+
+# ==========================================================
+# Models
+# ==========================================================
+m_pc1_E0 <- lm(mitoPC1 ~ Latitude_z + Longitude_z, data = dt)
+m_pc2_E0 <- lm(mitoPC2 ~ Latitude_z + Longitude_z, data = dt)
+
+m_pc1_E1 <- lm(mitoPC1 ~ Latitude_z + Longitude_z + treePC1 + treePC2, data = dt)
+m_pc2_E1 <- lm(mitoPC2 ~ Latitude_z + Longitude_z + treePC1 + treePC2, data = dt)
+
+lm_res <- rbindlist(list(
+  grab_lm(m_pc1_E0, "E0_latlon", "mitoPC1"),
+  grab_lm(m_pc2_E0, "E0_latlon", "mitoPC2"),
+  grab_lm(m_pc1_E1, "E1_latlon_treePC", "mitoPC1"),
+  grab_lm(m_pc2_E1, "E1_latlon_treePC", "mitoPC2")
+), fill = TRUE)
+
+fwrite(lm_res, OUT_LM, sep = "\t")
+cat("[write]", OUT_LM, "\n")
+
+# ==========================================================
+# MANOVA
+# ==========================================================
+man_E0 <- manova(cbind(mitoPC1, mitoPC2) ~ Latitude_z + Longitude_z, data = dt)
+
+man_E1 <- manova(
+  cbind(mitoPC1, mitoPC2) ~ Latitude_z + Longitude_z + treePC1 + treePC2,
+  data = dt
+)
+
+man_res <- rbindlist(list(
+  grab_manova(man_E0, "E0_latlon"),
+  grab_manova(man_E1, "E1_latlon_treePC")
+), fill = TRUE)
+
+fwrite(man_res, OUT_MAN, sep = "\t")
+cat("[write]", OUT_MAN, "\n")
+
+cat("\n=== MANOVA Pillai results ===\n")
+print(man_res[test == "Pillai"])
+
+cat("\n=== LM results for Latitude/Longitude ===\n")
+print(lm_res[term %in% c("Latitude_z", "Longitude_z")])
+
+cat("\n[done]\n")

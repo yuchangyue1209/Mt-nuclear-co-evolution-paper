@@ -1007,3 +1007,753 @@ perl -pi -e 's|DB = ".*"|DB = "/work/cyu/provean_db/teleost_uniref90.fa"|' run_s
 perl -pi -e 's|OUTBASE = BASE / "sift4g_all_OXPHOS72"|OUTBASE = BASE / "sift4g_all_OXPHOS72_teleostUniRef90"|' run_sift4g_OXPHOS72_teleostDB.py
 
 perl -pi -e 's|SIFT4G_candidate_substitution_results.tsv|SIFT4G_candidate_substitution_results_teleostUniRef90.tsv|' run_sift4g_OXPHOS72_teleostDB.py
+
+
+
+
+
+#blosum for 287
+cat > /work/cyu/make_AA_substitution_all_categories.py <<'PY'
+#!/usr/bin/env python3
+import os, re, math
+from collections import defaultdict, Counter
+import pandas as pd
+
+OUTDIR = "/work/cyu/AA_substitution_all_categories"
+os.makedirs(OUTDIR, exist_ok=True)
+
+NU_ALIGN_DIR = "/mnt/spareHD_2/oxphos_codeml_ready/06_gene_align_72"
+MT_ALIGN_DIR = "/work/cyu/poolseq/PPalign_output/overlap.vcf/consensus/_mt_gene_align_13"
+ANNOT_TABLE  = "/work/cyu/codeml_sites_summary.merged.tsv"
+
+CATEGORY_CONFIG = {
+    "mtPCG": {
+        "align_dir": MT_ALIGN_DIR,
+        "genes": ["ND1","ND2","ND3","ND4","ND4L","ND5","ND6","CYTB","COX1","COX2","COX3","ATP6","ATP8"],
+        "genetic_code": "vertebrate_mito"
+    },
+    "nuOXPHOS_subunit": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/nuOXPHOS_subunit.list",
+        "genetic_code": "standard"
+    },
+    "OXPHOS_assembly": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/assembly.list",
+        "genetic_code": "standard"
+    },
+    "nmt_ARS": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/nmt_ARS.list",
+        "genetic_code": "standard"
+    },
+    "nmt_ribo": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/nmt_ribo.list",
+        "genetic_code": "standard"
+    },
+    "cyto_ARS": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/cyto_ARS.list",
+        "genetic_code": "standard"
+    },
+    "cyto_ribo": {
+        "align_dir": NU_ALIGN_DIR,
+        "genes_file": "/work/cyu/gene_lists/cyto_ribo.list",
+        "genetic_code": "standard"
+    }
+}
+
+AK_FW = {"FG","LG","SR","SL","TL","WB","WT","WK","LB"}
+BC_FW = {"SWA","THE","JOE","BEA","MUC","PYE","BOOT","ECHO","LAW","GOS","ROB"}
+MARINE_REF = {"AK": "RS", "BC": "SAY"}
+ALL_POPS = AK_FW | BC_FW | {"RS","SAY","AMO","PACH","FRED","SC","CH"}
+BAD_AA = {"-", "X", "N", "*", "?"}
+
+MT_COMPLEX = {
+    "ND1":"CI", "ND2":"CI", "ND3":"CI", "ND4":"CI", "ND4L":"CI", "ND5":"CI", "ND6":"CI",
+    "CYTB":"CIII",
+    "COX1":"CIV", "COX2":"CIV", "COX3":"CIV",
+    "ATP6":"CV", "ATP8":"CV"
+}
+
+BLOSUM62 = """
+   A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V
+A  4 -1 -2 -2  0 -1 -1  0 -2 -1 -1 -1 -1 -2 -1  1  0 -3 -2  0
+R -1  5  0 -2 -3  1  0 -2  0 -3 -2  2 -1 -3 -2 -1 -1 -3 -2 -3
+N -2  0  6  1 -3  0  0  0  1 -3 -3  0 -2 -3 -2  1  0 -4 -2 -3
+D -2 -2  1  6 -3  0  2 -1 -1 -3 -4 -1 -3 -3 -1  0 -1 -4 -3 -3
+C  0 -3 -3 -3  9 -3 -4 -3 -3 -1 -1 -3 -1 -2 -3 -1 -1 -2 -2 -1
+Q -1  1  0  0 -3  5  2 -2  0 -3 -2  1  0 -3 -1  0 -1 -2 -1 -2
+E -1  0  0  2 -4  2  5 -2  0 -3 -3  1 -2 -3 -1  0 -1 -3 -2 -2
+G  0 -2  0 -1 -3 -2 -2  6 -2 -4 -4 -2 -3 -3 -2  0 -2 -2 -3 -3
+H -2  0  1 -1 -3  0  0 -2  8 -3 -3 -1 -2 -1 -2 -1 -2 -2  2 -3
+I -1 -3 -3 -3 -1 -3 -3 -4 -3  4  2 -3  1  0 -3 -2 -1 -3 -1  3
+L -1 -2 -3 -4 -1 -2 -3 -4 -3  2  4 -2  2  0 -3 -2 -1 -2 -1  1
+K -1  2  0 -1 -3  1  1 -2 -1 -3 -2  5 -1 -3 -1  0 -1 -3 -2 -2
+M -1 -1 -2 -3 -1  0 -2 -3 -2  1  2 -1  5  0 -2 -1 -1 -1 -1  1
+F -2 -3 -3 -3 -2 -3 -3 -3 -1  0  0 -3  0  6 -4 -2 -2  1  3 -1
+P -1 -2 -2 -1 -3 -1 -1 -2 -2 -3 -3 -1 -2 -4  7 -1 -1 -4 -3 -2
+S  1 -1  1  0 -1  0  0  0 -1 -2 -2  0 -1 -2 -1  4  1 -3 -2 -2
+T  0 -1  0 -1 -1 -1 -1 -2 -2 -1 -1 -1 -1 -2 -1  1  5 -2 -2  0
+W -3 -3 -4 -4 -2 -2 -3 -2 -2 -3 -2 -3 -1  1 -4 -3 -2 11  2 -3
+Y -2 -2 -2 -3 -2 -1 -2 -3  2 -1 -1 -2 -1  3 -3 -2 -2  2  7 -1
+V  0 -3 -3 -3 -1 -2 -2 -3 -3  3  1 -2  1 -1 -2 -2  0
+"""
+
+def parse_blosum(mat):
+    lines = [x.split() for x in mat.strip().splitlines()]
+    header = lines[0]
+    d = {}
+    for row in lines[1:]:
+        aa1 = row[0]
+        for aa2, val in zip(header, row[1:]):
+            d[(aa1, aa2)] = int(val)
+    return d
+
+BLOSUM = parse_blosum(BLOSUM62)
+
+STD_CODE = {
+    'TTT':'F','TTC':'F','TTA':'L','TTG':'L','TCT':'S','TCC':'S','TCA':'S','TCG':'S',
+    'TAT':'Y','TAC':'Y','TAA':'*','TAG':'*','TGT':'C','TGC':'C','TGA':'*','TGG':'W',
+    'CTT':'L','CTC':'L','CTA':'L','CTG':'L','CCT':'P','CCC':'P','CCA':'P','CCG':'P',
+    'CAT':'H','CAC':'H','CAA':'Q','CAG':'Q','CGT':'R','CGC':'R','CGA':'R','CGG':'R',
+    'ATT':'I','ATC':'I','ATA':'I','ATG':'M','ACT':'T','ACC':'T','ACA':'T','ACG':'T',
+    'AAT':'N','AAC':'N','AAA':'K','AAG':'K','AGT':'S','AGC':'S','AGA':'R','AGG':'R',
+    'GTT':'V','GTC':'V','GTA':'V','GTG':'V','GCT':'A','GCC':'A','GCA':'A','GCG':'A',
+    'GAT':'D','GAC':'D','GAA':'E','GAG':'E','GGT':'G','GGC':'G','GGA':'G','GGG':'G'
+}
+MT_CODE = STD_CODE.copy()
+MT_CODE.update({'TGA':'W', 'ATA':'M', 'AGA':'*', 'AGG':'*'})
+
+def clean_role(x):
+    x = str(x).strip()
+    if x.lower() in {"nan", "", "na", "none"}:
+        return "NA"
+    if x == "subunit":
+        return "nuOXPHOS_subunit"
+    if x == "assembly_factor":
+        return "OXPHOS_assembly"
+    if x.lower() == "nmt-ars":
+        return "nmt_ARS"
+    if x.lower() == "nmt-ribo":
+        return "nmt_ribo"
+    if x.lower() == "cyto-ars":
+        return "cyto_ARS"
+    if x.lower() == "cyto-ribo":
+        return "cyto_ribo"
+    return x
+
+def clean_complex(x):
+    x = str(x).strip()
+    if x.lower() in {"nan", "", "na", "none"}:
+        return "NA"
+    x = x.replace("Complex ", "")
+    mapx = {
+        "I": "CI", "II": "CII", "III": "CIII", "IV": "CIV", "V": "CV",
+        "CI": "CI", "CII": "CII", "CIII": "CIII", "CIV": "CIV", "CV": "CV"
+    }
+    return mapx.get(x, x)
+
+def load_annotation():
+    gene2category = {}
+    gene2complex = {}
+
+    if os.path.exists(ANNOT_TABLE):
+        ann = pd.read_csv(ANNOT_TABLE, sep="\t", dtype=str)
+        ann.columns = [c.strip() for c in ann.columns]
+
+        ann = ann[ann["model"].astype(str) == "M0"].copy()
+
+        for _, row in ann.iterrows():
+            gene = str(row["gene"]).strip().lower()
+            role = clean_role(row.get("role", "NA"))
+            comp = clean_complex(row.get("complex", "NA"))
+
+            if gene and gene != "nan":
+                gene2category[gene] = role
+                gene2complex[gene] = comp
+
+    for g, comp in MT_COMPLEX.items():
+        gene2category[g.lower()] = "mtPCG"
+        gene2complex[g.lower()] = comp
+
+    return gene2category, gene2complex
+
+gene2category, gene2complex = load_annotation()
+
+def read_gene_list(path):
+    with open(path) as f:
+        return [x.strip() for x in f if x.strip()]
+
+def read_fasta(path):
+    seqs, name, chunks = {}, None, []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if name is not None:
+                    seqs[name] = "".join(chunks).upper()
+                name = line[1:].split()[0]
+                chunks = []
+            else:
+                chunks.append(line)
+    if name is not None:
+        seqs[name] = "".join(chunks).upper()
+    return seqs
+
+def is_dna_alignment(seqs):
+    chars = set("".join(seqs.values()).upper())
+    return chars.issubset(set("ACGTN-?"))
+
+def translate_aligned_codon(seq, code_name):
+    code = MT_CODE if code_name == "vertebrate_mito" else STD_CODE
+    clean = seq.upper().replace("?", "N")
+    aa = []
+    for i in range(0, len(clean) - 2, 3):
+        codon = clean[i:i+3]
+        if codon == "---":
+            aa.append("-")
+        elif "-" in codon:
+            aa.append("-")
+        elif "N" in codon:
+            aa.append("X")
+        else:
+            aa.append(code.get(codon, "X"))
+    return "".join(aa)
+
+def infer_pop(sample):
+    parts = re.split(r"[_\.\-\|]+", sample)
+    for p in parts:
+        if p in ALL_POPS:
+            return p
+    for p in sorted(ALL_POPS, key=len, reverse=True):
+        if re.search(rf"(^|[_\.\-\|]){p}([_\.\-\|]|$)", sample):
+            return p
+    return None
+
+def get_alignment_path(align_dir, gene):
+    names = [gene, gene.lower(), gene.upper()]
+    suffixes = [
+        ".pep.aln.faa", ".aln.faa", ".faa",
+        ".codon.fas", ".codon.fa", ".fas", ".fasta"
+    ]
+    candidates = []
+    for g in names:
+        for s in suffixes:
+            candidates.append(os.path.join(align_dir, g, f"{g}{s}"))
+            candidates.append(os.path.join(align_dir, f"{g}{s}"))
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+def aligned_to_ref_pos(ref_aln):
+    pos_map, pos = {}, 0
+    for i, aa in enumerate(ref_aln):
+        if aa != "-":
+            pos += 1
+            pos_map[i] = pos
+        else:
+            pos_map[i] = None
+    return pos_map
+
+def get_variants(ref_aln, q_aln):
+    pos_map = aligned_to_ref_pos(ref_aln)
+    out = []
+    for i, (r, q) in enumerate(zip(ref_aln, q_aln)):
+        if pos_map[i] is None:
+            continue
+        if r in BAD_AA or q in BAD_AA:
+            continue
+        if r != q:
+            out.append(f"{r}{pos_map[i]}{q}")
+    return out
+
+def shannon_entropy(chars):
+    n = len(chars)
+    c = Counter(chars)
+    ent = 0
+    for v in c.values():
+        p = v / n
+        ent -= p * math.log2(p)
+    return ent
+
+def parse_variant(v):
+    m = re.match(r"^([A-Z])([0-9]+)([A-Z])$", v)
+    if not m:
+        return None
+    return m.group(1), int(m.group(2)), m.group(3)
+
+def impact_class(major_freq, blosum, n_pops):
+    recurrent = n_pops >= 2
+    conserved = major_freq >= 0.90
+    radical = blosum is not None and blosum <= -2
+    nonconservative = blosum is not None and blosum <= 0
+
+    if recurrent and conserved and radical:
+        return "recurrent_conserved_radical"
+    if recurrent and conserved and nonconservative:
+        return "recurrent_conserved_nonconservative"
+    if conserved and radical:
+        return "conserved_radical"
+    if recurrent and radical:
+        return "recurrent_radical"
+    if recurrent:
+        return "recurrent"
+    if radical:
+        return "radical"
+    if nonconservative:
+        return "nonconservative"
+    return "weak_or_uncertain"
+
+all_rows = []
+summary_rows = []
+
+for config_category, cfg in CATEGORY_CONFIG.items():
+    genes = cfg["genes"] if "genes" in cfg else read_gene_list(cfg["genes_file"])
+    align_dir = cfg["align_dir"]
+    code_name = cfg.get("genetic_code", "standard")
+
+    print(f"\n[category] {config_category}: {len(genes)} genes")
+
+    for gene in genes:
+        gene_key = gene.lower()
+        aln_path = get_alignment_path(align_dir, gene)
+
+        if aln_path is None:
+            print(f"[skip] missing alignment: {config_category} {gene}")
+            continue
+
+        seqs_raw = read_fasta(aln_path)
+
+        if is_dna_alignment(seqs_raw):
+            seqs = {k: translate_aligned_codon(v, code_name) for k, v in seqs_raw.items()}
+            seq_type = "translated_codon_alignment"
+        else:
+            seqs = seqs_raw
+            seq_type = "protein_alignment"
+
+        category = gene2category.get(gene_key, config_category)
+        complex_ = gene2complex.get(gene_key, "NA")
+
+        pop_to_sample = {}
+        for sample in seqs:
+            pop = infer_pop(sample)
+            if pop:
+                pop_to_sample[pop] = sample
+
+        for region, marine in MARINE_REF.items():
+            if marine not in pop_to_sample:
+                print(f"[skip] {config_category} {gene} {region}: missing marine ref {marine}")
+                continue
+
+            fw_pops = AK_FW if region == "AK" else BC_FW
+            ref_sample = pop_to_sample[marine]
+            ref_aln = seqs[ref_sample]
+            pos_map = aligned_to_ref_pos(ref_aln)
+
+            variant_to_pops = defaultdict(list)
+
+            for pop in sorted(fw_pops):
+                if pop not in pop_to_sample:
+                    continue
+
+                q_sample = pop_to_sample[pop]
+                q_aln = seqs[q_sample]
+                variants = get_variants(ref_aln, q_aln)
+
+                summary_rows.append({
+                    "category": category,
+                    "config_category": config_category,
+                    "gene": gene,
+                    "complex": complex_,
+                    "region": region,
+                    "marine_ref": marine,
+                    "pop": pop,
+                    "sample": q_sample,
+                    "n_variants": len(variants),
+                    "variants": ",".join(variants),
+                    "alignment_file": aln_path,
+                    "seq_type": seq_type,
+                    "genetic_code": code_name
+                })
+
+                for v in variants:
+                    variant_to_pops[v].append(pop)
+
+            for variant, pops in variant_to_pops.items():
+                parsed = parse_variant(variant)
+                if parsed is None:
+                    continue
+
+                ref_aa, pos, alt_aa = parsed
+
+                aln_col = None
+                for i, p in pos_map.items():
+                    if p == pos:
+                        aln_col = i
+                        break
+                if aln_col is None:
+                    continue
+
+                site_aas = [
+                    s[aln_col] for s in seqs.values()
+                    if aln_col < len(s) and s[aln_col] not in BAD_AA
+                ]
+                if not site_aas:
+                    continue
+
+                counts = Counter(site_aas)
+                major_aa, major_count = counts.most_common(1)[0]
+                total = len(site_aas)
+
+                major_freq = major_count / total
+                ref_freq = counts.get(ref_aa, 0) / total
+                alt_freq = counts.get(alt_aa, 0) / total
+                entropy = shannon_entropy(site_aas)
+                blosum = BLOSUM.get((ref_aa, alt_aa), None)
+
+                unique_pops = sorted(set(pops))
+                n_pops = len(unique_pops)
+
+                all_rows.append({
+                    "category": category,
+                    "config_category": config_category,
+                    "gene": gene,
+                    "complex": complex_,
+                    "region": region,
+                    "marine_ref": marine,
+                    "variant": variant,
+                    "ref_aa": ref_aa,
+                    "position": pos,
+                    "alt_aa": alt_aa,
+                    "n_pops": n_pops,
+                    "populations": ",".join(unique_pops),
+                    "alignment_column_1based": aln_col + 1,
+                    "n_sequences_scored": total,
+                    "major_aa": major_aa,
+                    "major_freq": round(major_freq, 3),
+                    "ref_aa_freq": round(ref_freq, 3),
+                    "alt_aa_freq": round(alt_freq, 3),
+                    "entropy": round(entropy, 3),
+                    "BLOSUM62": blosum,
+                    "BLOSUM_class": (
+                        "radical" if blosum is not None and blosum <= -2 else
+                        "nonconservative" if blosum is not None and blosum <= 0 else
+                        "conservative" if blosum is not None else
+                        "NA"
+                    ),
+                    "impact_class": impact_class(major_freq, blosum, n_pops),
+                    "alignment_file": aln_path,
+                    "seq_type": seq_type,
+                    "genetic_code": code_name
+                })
+
+df = pd.DataFrame(all_rows)
+summary = pd.DataFrame(summary_rows)
+
+out1 = os.path.join(OUTDIR, "AA_substitutions_all_categories_BLOSUM_conservation.tsv")
+out2 = os.path.join(OUTDIR, "AA_substitution_per_population_summary.tsv")
+out3 = os.path.join(OUTDIR, "category_AA_summary.tsv")
+
+if not df.empty:
+    df = df.sort_values(
+        ["category", "gene", "region", "n_pops", "major_freq", "BLOSUM62"],
+        ascending=[True, True, True, False, False, True]
+    )
+
+df.to_csv(out1, sep="\t", index=False)
+summary.to_csv(out2, sep="\t", index=False)
+
+print("\nDONE")
+print("Main output:", out1)
+print("Per-pop summary:", out2)
+
+if not df.empty:
+    cat_summary = df.groupby("category").agg(
+        n_unique_substitutions=("variant", "count"),
+        n_genes=("gene", "nunique"),
+        recurrent_substitutions=("n_pops", lambda x: (x >= 2).sum()),
+        radical_substitutions=("BLOSUM62", lambda x: (x <= -2).sum()),
+        nonconservative_substitutions=("BLOSUM62", lambda x: (x <= 0).sum())
+    ).reset_index()
+
+    cat_summary.to_csv(out3, sep="\t", index=False)
+
+    print("\nCategory summary:")
+    print(cat_summary.to_string(index=False))
+    print("\nSaved category summary:", out3)
+else:
+    print("No substitutions found.")
+PY
+
+
+
+
+
+#sift for287
+/work/cyu/run_sift4g_287_all_categories_teleostDB.py
+#!/usr/bin/env python3
+import os
+import re
+import subprocess
+import pandas as pd
+from pathlib import Path
+
+# ============================================================
+# Paths
+# ============================================================
+BASE = Path("/work/cyu/AA_substitution_all_categories")
+
+INFILE = BASE / "AA_substitutions_all_categories_BLOSUM_conservation.tsv"
+
+OUTBASE = BASE / "sift4g_287_all_categories_teleostUniRef90"
+OUTBASE.mkdir(parents=True, exist_ok=True)
+
+SIFT4G = "/home/cyu/.conda/envs/provean_env/bin/sift4g"
+
+# 这里换成你的 teleost SIFT database
+# 如果你的 teleost db 是 fasta，就放 fasta 路径
+# 如果是已经 build 好的 SIFT4G db，也放那个路径
+DB = "/work/cyu/provean_db/teleost_uniref90.fa"
+
+BAD_AA = {"-", "X", "N", "*", "?"}
+
+STD_CODE = {
+    'TTT':'F','TTC':'F','TTA':'L','TTG':'L','TCT':'S','TCC':'S','TCA':'S','TCG':'S',
+    'TAT':'Y','TAC':'Y','TAA':'*','TAG':'*','TGT':'C','TGC':'C','TGA':'*','TGG':'W',
+    'CTT':'L','CTC':'L','CTA':'L','CTG':'L','CCT':'P','CCC':'P','CCA':'P','CCG':'P',
+    'CAT':'H','CAC':'H','CAA':'Q','CAG':'Q','CGT':'R','CGC':'R','CGA':'R','CGG':'R',
+    'ATT':'I','ATC':'I','ATA':'I','ATG':'M','ACT':'T','ACC':'T','ACA':'T','ACG':'T',
+    'AAT':'N','AAC':'N','AAA':'K','AAG':'K','AGT':'S','AGC':'S','AGA':'R','AGG':'R',
+    'GTT':'V','GTC':'V','GTA':'V','GTG':'V','GCT':'A','GCC':'A','GCA':'A','GCG':'A',
+    'GAT':'D','GAC':'D','GAA':'E','GAG':'E','GGT':'G','GGC':'G','GGA':'G','GGG':'G'
+}
+MT_CODE = STD_CODE.copy()
+MT_CODE.update({'TGA':'W', 'ATA':'M', 'AGA':'*', 'AGG':'*'})
+
+def read_fasta(path):
+    seqs = {}
+    name = None
+    chunks = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if name is not None:
+                    seqs[name] = "".join(chunks).upper()
+                name = line[1:].split()[0]
+                chunks = []
+            else:
+                chunks.append(line)
+    if name is not None:
+        seqs[name] = "".join(chunks).upper()
+    return seqs
+
+def write_fasta(path, name, seq):
+    with open(path, "w") as out:
+        out.write(f">{name}\n")
+        for i in range(0, len(seq), 60):
+            out.write(seq[i:i+60] + "\n")
+
+def is_dna_alignment(seqs):
+    chars = set("".join(seqs.values()).upper())
+    return chars.issubset(set("ACGTN-?"))
+
+def translate_aligned_codon(seq, genetic_code):
+    code = MT_CODE if genetic_code == "vertebrate_mito" else STD_CODE
+    clean = seq.upper().replace("?", "N")
+    aa = []
+    for i in range(0, len(clean) - 2, 3):
+        codon = clean[i:i+3]
+        if codon == "---":
+            aa.append("-")
+        elif "-" in codon:
+            aa.append("-")
+        elif "N" in codon:
+            aa.append("X")
+        else:
+            aa.append(code.get(codon, "X"))
+    return "".join(aa)
+
+def ungap(seq):
+    return seq.replace("-", "")
+
+def infer_ref_sample(seqs, marine_ref):
+    for name in seqs:
+        parts = re.split(r"[_\.\-\|]+", name)
+        if marine_ref in parts:
+            return name
+    for name in seqs:
+        if marine_ref in name:
+            return name
+    return None
+
+def parse_sift_prediction(pred_file, variant):
+    if not pred_file.exists():
+        return None, "NA"
+
+    with open(pred_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            fields = line.split()
+
+            if len(fields) >= 3 and fields[0] == variant:
+                pred = fields[1].lower()
+                try:
+                    score = float(fields[2])
+                except Exception:
+                    score = None
+                return score, pred
+
+    return None, "NA"
+
+# ============================================================
+# Main
+# ============================================================
+df = pd.read_csv(INFILE, sep="\t")
+
+required = ["category", "gene", "region", "marine_ref", "variant", "alignment_file", "genetic_code"]
+missing = [x for x in required if x not in df.columns]
+if missing:
+    raise ValueError(f"Missing columns in input: {missing}")
+
+# 每个 gene-region 跑一次，而不是每个 substitution 跑一次
+groups = df.groupby(
+    ["category", "gene", "region", "marine_ref", "alignment_file", "genetic_code"],
+    dropna=False
+)
+
+rows = []
+
+for (category, gene, region, marine_ref, alignment_file, genetic_code), sub in groups:
+    print(f"\n[prepare] {category} {gene} {region}")
+
+    if not os.path.exists(alignment_file):
+        print(f"[skip] missing alignment file: {alignment_file}")
+        for _, r in sub.iterrows():
+            rr = r.to_dict()
+            rr["SIFT_score"] = None
+            rr["SIFT_prediction"] = "missing_alignment"
+            rr["SIFT_prediction_file"] = ""
+            rows.append(rr)
+        continue
+
+    seqs_raw = read_fasta(alignment_file)
+
+    if is_dna_alignment(seqs_raw):
+        seqs = {k: translate_aligned_codon(v, genetic_code) for k, v in seqs_raw.items()}
+    else:
+        seqs = seqs_raw
+
+    ref_sample = infer_ref_sample(seqs, marine_ref)
+
+    if ref_sample is None:
+        print(f"[skip] missing marine ref {marine_ref}: {gene} {region}")
+        for _, r in sub.iterrows():
+            rr = r.to_dict()
+            rr["SIFT_score"] = None
+            rr["SIFT_prediction"] = "missing_marine_ref"
+            rr["SIFT_prediction_file"] = ""
+            rows.append(rr)
+        continue
+
+    ref_protein = ungap(seqs[ref_sample])
+
+    # SIFT query protein 不要有 stop
+    ref_protein = ref_protein.replace("*", "")
+
+    if len(ref_protein) < 20:
+        print(f"[skip] too short ref protein: {gene} {region}")
+        for _, r in sub.iterrows():
+            rr = r.to_dict()
+            rr["SIFT_score"] = None
+            rr["SIFT_prediction"] = "too_short_ref"
+            rr["SIFT_prediction_file"] = ""
+            rows.append(rr)
+        continue
+
+    variants = sorted(set(sub["variant"].dropna().astype(str)))
+
+    work = OUTBASE / f"{category}__{gene}__{region}"
+    subst_dir = work / "subst"
+    outdir = work / "out"
+
+    subst_dir.mkdir(parents=True, exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    header = f"{category}_{gene}_{region}_{marine_ref}"
+    ref_fa = work / f"{header}.faa"
+    subst_file = subst_dir / f"{header}.subst"
+
+    write_fasta(ref_fa, header, ref_protein)
+
+    with open(subst_file, "w") as out:
+        for v in variants:
+            out.write(v + "\n")
+
+    cmd = [
+        SIFT4G,
+        "-q", str(ref_fa),
+        "-d", DB,
+        "--subst", str(subst_dir),
+        "--out", str(outdir),
+        "-t", "4"
+    ]
+
+    print("[run]", " ".join(cmd))
+
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError:
+        print(f"[warn] SIFT failed: {category} {gene} {region}")
+        for _, r in sub.iterrows():
+            rr = r.to_dict()
+            rr["SIFT_score"] = None
+            rr["SIFT_prediction"] = "FAILED"
+            rr["SIFT_prediction_file"] = ""
+            rows.append(rr)
+        continue
+
+    pred_file = outdir / f"{header}.SIFTprediction"
+
+    for _, r in sub.iterrows():
+        variant = str(r["variant"])
+        score, pred = parse_sift_prediction(pred_file, variant)
+
+        rr = r.to_dict()
+        rr["SIFT_score"] = score
+        rr["SIFT_prediction"] = pred
+        rr["SIFT_prediction_file"] = str(pred_file)
+        rows.append(rr)
+
+out = pd.DataFrame(rows)
+
+outfile = BASE / "AA_substitutions_287_all_categories_BLOSUM_conservation_SIFT4G_teleostUniRef90.tsv"
+out.to_csv(outfile, sep="\t", index=False)
+
+print("\nDONE")
+print("Saved:", outfile)
+
+summary = (
+    out.groupby(["category", "SIFT_prediction"])
+    .size()
+    .reset_index(name="n")
+    .sort_values(["category", "SIFT_prediction"])
+)
+
+summary_file = BASE / "SIFT4G_287_category_summary_teleostUniRef90.tsv"
+summary.to_csv(summary_file, sep="\t", index=False)
+
+print("Summary:", summary_file)
+print(summary.to_string(index=False))
+
+

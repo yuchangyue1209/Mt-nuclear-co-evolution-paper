@@ -125,3 +125,98 @@ colabfold_batch \
   --model-type alphafold2_ptm \
   top_candidate_ref_proteins_for_colabfold.faa \
   output
+
+
+cd /work/cyu/OXPHOS_structural_validation/colabfold
+
+mkdir -p pdb_rank1
+
+find output -name "*rank_001*.pdb" -exec cp {} pdb_rank1/ \;
+
+ls pdb_rank1
+
+#
+cd /work/cyu/OXPHOS_structural_validation/colabfold
+
+mkdir -p pymol_scripts pymol_figures
+cat > make_pymol_mutation_scripts.py <<'PY'
+from pathlib import Path
+
+PDB_DIR = Path("pdb_rank1")
+OUTDIR = Path("pymol_scripts")
+OUTDIR.mkdir(exist_ok=True)
+
+mutations = {
+    "ndufs7":  ["F19S", "C33G", "G8R"],
+    "atp5f1b":["G19R", "A38S", "S38A"],
+    "ndufa7": ["P42A"],
+    "ndufa4": ["E3G"],
+    "uqcrq":  ["G44A"],
+    "ndufs8": ["Y37H"],
+}
+
+colors = ["red", "orange", "yellow", "magenta", "cyan", "green"]
+
+for gene, muts in mutations.items():
+    for ref in ["RS", "SAY"]:
+        pdbs = list(PDB_DIR.glob(f"{gene}_{ref}_*rank_001*.pdb"))
+        if not pdbs:
+            continue
+        pdb = pdbs[0]
+
+        lines = [
+            f"load ../pdb_rank1/{pdb.name}",
+            "hide everything",
+            "show cartoon",
+            "color gray80",
+            "bg_color white",
+            "set ray_opaque_background, off",
+            "set cartoon_transparency, 0.10",
+        ]
+
+        for i, mut in enumerate(muts):
+            pos = ''.join([c for c in mut if c.isdigit()])
+            col = colors[i % len(colors)]
+            sel = f"mut_{pos}_{i}"
+            lines += [
+                f"select {sel}, resi {pos}",
+                f"show sticks, {sel}",
+                f"color {col}, {sel}",
+                f"label {sel} and name CA, \"{mut}\"",
+            ]
+
+        lines += [
+            "zoom",
+            f"png ../pymol_figures/{gene}_{ref}_mutation_sites.png, dpi=300, ray=1",
+            f"save ../pymol_figures/{gene}_{ref}_mutation_sites.pse",
+        ]
+
+        out = OUTDIR / f"{gene}_{ref}_mark_mutations.pml"
+        out.write_text("\n".join(lines) + "\n")
+        print("[write]", out)
+PY
+
+python3 make_pymol_mutation_scripts.py
+
+
+
+conda create -n pymol_env -c conda-forge python=3.10 pymol-open-source -y
+conda activate pymol_env
+
+export QT_QPA_PLATFORM=offscreen
+
+pymol -cq
+
+
+cd /work/cyu/OXPHOS_structural_validation/colabfold
+
+export QT_QPA_PLATFORM=offscreen
+
+cd pymol_scripts
+
+pymol -cq ndufs7_RS_mark_mutations.pml
+pymol -cq atp5f1b_RS_mark_mutations.pml
+
+
+/work/cyu/OXPHOS_structural_validation/colabfold/pymol_figures/ndufs7_RS_mutation_sites.png
+/work/cyu/OXPHOS_structural_validation/colabfold/pymol_figures/atp5f1b_RS_mutation_sites.png

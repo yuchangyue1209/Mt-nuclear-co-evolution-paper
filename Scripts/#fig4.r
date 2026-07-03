@@ -333,3 +333,481 @@ cat("\nDone. Files saved in:\n")
 cat(OUTDIR, "\n")
 cat("\nCheck with:\n")
 cat("ls -lh ", OUTDIR, "\n", sep = "")
+
+
+
+
+
+
+
+
+
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+  library(ggrepel)
+  library(grid)
+})
+
+# ============================================================
+# Paths
+# ============================================================
+
+GLM_DIR <- "/work/cyu/ldx_all_subunits/ld/mtlineage_quasibinomial_GLM_OXPHOS72/separate_geo_mtlineage_GLM"
+
+IN_GEO <- file.path(
+  GLM_DIR,
+  "OXPHOS72_geography_quasibinomial_GLM_results.tsv"
+)
+
+IN_MT <- file.path(
+  GLM_DIR,
+  "OXPHOS72_mtlineage_quasibinomial_GLM_results.tsv"
+)
+
+PAIRWISE_FILE <- "/work/cyu/ldx_all_subunits/ld/pairwise_deltaAF_similarity_ldpruned_effectFiltered_10000perm/pairwise_deltaAF_similarity_within_between_effect0.2_10000perm.tsv"
+
+SUMMARY_FILE <- "/work/cyu/ldx_all_subunits/ld/pairwise_deltaAF_similarity_ldpruned_effectFiltered_10000perm/pairwise_deltaAF_similarity_summary_effect0.2_10000perm.tsv"
+
+OUTDIR <- "/work/cyu/ldx_all_subunits/ld/mtlineage_quasibinomial_GLM_OXPHOS72/Figure4_threePanels_originalStyle_realSE_print"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================
+# Parameters
+# ============================================================
+
+Q_THRESHOLD <- 0.05
+EFFECT_THRESHOLD <- 0.20
+
+# ============================================================
+# Unified style
+# ============================================================
+
+COL_CAND <- c(
+  "Not candidate" = "grey75",
+  "FDR only" = "#4C78A8",
+  "Large effect only" = "#E45756",
+  "Candidate" = "#C77CFF"
+)
+
+COL_WITHIN <- c(
+  "Within" = "#F8766D",
+  "Between" = "#00BFC4"
+)
+
+theme_fig <- theme_classic(base_size = 13) +
+  theme(
+    axis.line = element_line(color = "black", linewidth = 0.5),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold", size = 15),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0),
+    plot.subtitle = element_text(size = 13, hjust = 0),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12, color = "black"),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 12),
+    legend.key.size = unit(0.5, "cm")
+  )
+
+# ============================================================
+# Panel A: Geography GLM volcano
+# ============================================================
+
+GEO <- fread(IN_GEO)
+
+GEO <- GEO[
+  is.finite(q_geo) &
+    q_geo > 0 &
+    q_geo <= 1 &
+    is.finite(abs_geo_AF_diff)
+]
+
+GEO[, logq := -log10(q_geo)]
+
+GEO[, plot_group := "Not candidate"]
+GEO[significant_geo == TRUE & large_effect_geo == FALSE, plot_group := "FDR only"]
+GEO[significant_geo == FALSE & large_effect_geo == TRUE, plot_group := "Large effect only"]
+GEO[candidate_geo == TRUE, plot_group := "Candidate"]
+
+GEO[, plot_group := factor(
+  plot_group,
+  levels = c("Not candidate", "FDR only", "Large effect only", "Candidate")
+)]
+
+# label each candidate gene once
+TOP_GEO <- GEO[candidate_geo == TRUE][order(q_geo, -abs_geo_AF_diff)]
+TOP_GEO <- TOP_GEO[, .SD[1], by = gene]
+
+GEO[, logq_plot := pmin(logq, 2)]
+TOP_GEO[, logq_plot := pmin(logq, 2)]
+
+pA <- ggplot(GEO, aes(x = abs_geo_AF_diff, y = logq_plot)) +
+  geom_point(
+    aes(color = plot_group),
+    alpha = 0.75,
+    size = 1.6
+  ) +
+  geom_hline(
+    yintercept = -log10(Q_THRESHOLD),
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_vline(
+    xintercept = EFFECT_THRESHOLD,
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_text_repel(
+    data = TOP_GEO,
+    aes(label = gene),
+    size = 3.8,
+    color = "black",
+    fontface = "italic",
+    box.padding = 0.35,
+    point.padding = 0.25,
+    segment.size = 0.3,
+    max.overlaps = Inf,
+    force = 2
+  ) +
+  coord_cartesian(ylim = c(0, 1.6)) +
+  scale_color_manual(values = COL_CAND, name = NULL) +
+  labs(
+    title = "A",
+    subtitle = "Geography-associated SNPs",
+    x = "Absolute AK-BC allele-frequency difference",
+    y = expression(-log[10]("FDR q-value"))
+  ) +
+  theme_fig +
+  theme(
+    legend.position = "right",
+    plot.margin = margin(t = 15, r = 15, b = 10, l = 10)
+  )
+
+# ============================================================
+# Panel B: mt-lineage GLM volcano
+# ============================================================
+
+MT <- fread(IN_MT)
+
+MT <- MT[
+  is.finite(q_mt) &
+    q_mt > 0 &
+    q_mt <= 1 &
+    is.finite(max_lineage_AF_diff)
+]
+
+MT[, logq := -log10(q_mt)]
+
+MT[, plot_group := "Not candidate"]
+MT[significant_mt == TRUE & large_effect_mt == FALSE, plot_group := "FDR only"]
+MT[significant_mt == FALSE & large_effect_mt == TRUE, plot_group := "Large effect only"]
+MT[candidate_mt == TRUE, plot_group := "Candidate"]
+
+MT[, plot_group := factor(
+  plot_group,
+  levels = c("Not candidate", "FDR only", "Large effect only", "Candidate")
+)]
+
+TOP_MT <- MT[candidate_mt == TRUE][order(q_mt, -max_lineage_AF_diff)]
+TOP_MT <- TOP_MT[, .SD[1], by = gene]
+
+# cap extreme small-effect SNPs only for plotting
+MT[, logq_plot := pmin(logq, 6)]
+TOP_MT[, logq_plot := pmin(logq, 6)]
+
+pB <- ggplot(MT, aes(x = max_lineage_AF_diff, y = logq_plot)) +
+  geom_point(
+    aes(color = plot_group),
+    alpha = 0.75,
+    size = 1.6
+  ) +
+  geom_hline(
+    yintercept = -log10(Q_THRESHOLD),
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_vline(
+    xintercept = EFFECT_THRESHOLD,
+    linetype = "dashed",
+    linewidth = 0.4
+  ) +
+  geom_text_repel(
+    data = TOP_MT,
+    aes(label = gene),
+    size = 3.8,
+    color = "black",
+    fontface = "italic",
+    box.padding = 0.35,
+    point.padding = 0.25,
+    segment.size = 0.3,
+    max.overlaps = Inf,
+    force = 2
+  ) +
+  coord_cartesian(ylim = c(0, 6)) +
+  scale_color_manual(values = COL_CAND, name = NULL) +
+  labs(
+    title = "B",
+    subtitle = "Mitochondrial-lineage-associated SNPs",
+    x = "Maximum allele-frequency difference among mt lineages",
+    y = expression(-log[10]("FDR q-value"))
+  ) +
+  theme_fig +
+  theme(
+    legend.position = "right",
+    plot.margin = margin(t = 15, r = 15, b = 10, l = 10)
+  )
+
+# ============================================================
+# Panel C: signed deltaAF profile distance with real SE
+# ============================================================
+
+PAIRWISE <- fread(PAIRWISE_FILE)
+SUMMARY <- fread(SUMMARY_FILE)
+
+P <- PAIRWISE[metric == "Signed_deltaAF"]
+
+P[, type := as.character(type)]
+P[type %in% c("within", "WITHIN"), type := "Within"]
+P[type %in% c("between", "BETWEEN"), type := "Between"]
+
+P[, type := factor(type, levels = c("Within", "Between"))]
+P[, region := factor(region, levels = c("AK", "BC"))]
+
+BAR <- P[, .(
+  mean = mean(dist, na.rm = TRUE),
+  se = sd(dist, na.rm = TRUE) / sqrt(.N),
+  sd = sd(dist, na.rm = TRUE),
+  n_pairs = .N
+), by = .(region, type)]
+
+setorder(BAR, region, type)
+
+cat("\n[INFO] Panel C BAR table with real SE:\n")
+print(BAR)
+
+# ============================================================
+# Manual p labels for Panel C
+# ============================================================
+
+LAB <- data.table(
+  region = factor(c("AK", "BC"), levels = c("AK", "BC")),
+  x = 1.5,
+  p_label = c("p = 0.107", "p = 0.0491 *")
+)
+
+YLAB <- BAR[, .(
+  y = max(mean + se, na.rm = TRUE) + 0.045
+), by = region]
+
+YLAB[, region := factor(region, levels = c("AK", "BC"))]
+
+LAB <- merge(LAB, YLAB, by = "region", all.x = TRUE)
+
+pC <- ggplot(BAR, aes(x = type, y = mean, fill = type)) +
+  geom_col(width = 0.62, color = NA, alpha = 0.9) +
+  geom_errorbar(
+    aes(ymin = mean - se, ymax = mean + se),
+    width = 0.18,
+    linewidth = 0.5
+  ) +
+  geom_text(
+    data = LAB,
+    aes(x = x, y = y, label = p_label),
+    inherit.aes = FALSE,
+    size = 4
+  ) +
+  facet_wrap(~ region, nrow = 1) +
+  scale_fill_manual(values = COL_WITHIN) +
+  coord_cartesian(
+    ylim = c(0, max(BAR$mean + BAR$se, na.rm = TRUE) + 0.12)
+  ) +
+  labs(
+    title = "C",
+    x = NULL,
+    y = expression("1 - correlation of signed " * Delta * "AF")
+  ) +
+  theme_fig +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 12),
+    plot.margin = margin(t = 15, r = 15, b = 10, l = 10)
+  )
+
+# ============================================================
+# Save single panels
+# ============================================================
+
+ggsave(
+  file.path(OUTDIR, "Fig4A_geography_GLM_volcano_unified.png"),
+  pA,
+  width = 7.2,
+  height = 5.5,
+  dpi = 300
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig4A_geography_GLM_volcano_unified.pdf"),
+  pA,
+  width = 7.2,
+  height = 5.5
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig4B_mtlineage_GLM_volcano_unified.png"),
+  pB,
+  width = 7.2,
+  height = 5.5,
+  dpi = 300
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig4B_mtlineage_GLM_volcano_unified.pdf"),
+  pB,
+  width = 7.2,
+  height = 5.5
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig4C_signed_deltaAF_profile_bar_realSE_unified.png"),
+  pC,
+  width = 6.0,
+  height = 4.8,
+  dpi = 300
+)
+
+ggsave(
+  file.path(OUTDIR, "Fig4C_signed_deltaAF_profile_bar_realSE_unified.pdf"),
+  pC,
+  width = 6.0,
+  height = 4.8
+)
+
+fwrite(
+  BAR,
+  file.path(OUTDIR, "Fig4C_signed_deltaAF_profile_bar_realSE_values.tsv"),
+  sep = "\t"
+)
+
+# ============================================================
+# Combined three-panel figure
+# ============================================================
+
+OUT_PANEL_PNG <- file.path(
+  OUTDIR,
+  "Fig4_threePanels_GLM_profile_realSE_unified.png"
+)
+
+OUT_PANEL_PDF <- file.path(
+  OUTDIR,
+  "Fig4_threePanels_GLM_profile_realSE_unified.pdf"
+)
+
+draw_three_panel <- function(use_label = TRUE) {
+  grid.newpage()
+  pushViewport(
+    viewport(
+      layout = grid.layout(
+        nrow = 2,
+        ncol = 2,
+        widths = unit(c(1, 1), "null"),
+        heights = unit(c(1, 0.85), "null")
+      )
+    )
+  )
+  
+  print(
+    pA + theme(legend.position = "none"),
+    vp = viewport(layout.pos.row = 1, layout.pos.col = 1)
+  )
+  
+  print(
+    pB + theme(legend.position = "none"),
+    vp = viewport(layout.pos.row = 1, layout.pos.col = 2)
+  )
+  
+  print(
+    pC,
+    vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2)
+  )
+}
+
+png(
+  filename = OUT_PANEL_PNG,
+  width = 3000,
+  height = 2400,
+  res = 300
+)
+
+draw_three_panel()
+
+dev.off()
+
+pdf(
+  file = OUT_PANEL_PDF,
+  width = 10,
+  height = 8
+)
+
+draw_three_panel()
+
+dev.off()
+
+# ============================================================
+# Print preview in R window
+# ============================================================
+# RStudio/R web plot pane sometimes gives:
+# "Viewport has zero dimension(s)" when ggrepel is printed.
+# So preview uses the same plots but removes ggrepel labels.
+# Official saved PNG/PDF above keep the gene labels.
+
+remove_ggrepel <- function(p) {
+  keep <- !sapply(p$layers, function(x) {
+    inherits(x$geom, "GeomTextRepel") || inherits(x$geom, "GeomLabelRepel")
+  })
+  p$layers <- p$layers[keep]
+  p
+}
+
+pA_win <- remove_ggrepel(pA) + theme(legend.position = "none")
+pB_win <- remove_ggrepel(pB) + theme(legend.position = "none")
+pC_win <- pC
+
+draw_three_panel_window <- function() {
+  grid.newpage()
+  pushViewport(
+    viewport(
+      layout = grid.layout(
+        nrow = 2,
+        ncol = 2,
+        widths = unit(c(1, 1), "null"),
+        heights = unit(c(1, 0.85), "null")
+      )
+    )
+  )
+  
+  print(
+    pA_win,
+    vp = viewport(layout.pos.row = 1, layout.pos.col = 1)
+  )
+  
+  print(
+    pB_win,
+    vp = viewport(layout.pos.row = 1, layout.pos.col = 2)
+  )
+  
+  print(
+    pC_win,
+    vp = viewport(layout.pos.row = 2, layout.pos.col = 1:2)
+  )
+}
+
+graphics.off()
+draw_three_panel_window()
+
+cat("\nDone. Files saved in:\n")
+cat(OUTDIR, "\n")
+cat("\nCheck with:\n")
+cat("ls -lh ", OUTDIR, "\n", sep = "")

@@ -638,3 +638,962 @@ print(final_table[gene %in% c(
 
 
  /mnt/spareHD_2/nu_287/q2_parallelism/Table6_gene_candidates_LDpruned.tsv 
+
+
+
+
+# new ld
+cat > /work/cyu/ldx_all_subunits/run_pairwise_deltaAF_similarity_ldpruned_mtlineage.R <<'RSCRIPT'
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+})
+
+# ============================================================
+# Input
+# ============================================================
+DELTA_FILE <- "/work/cyu/ldx_all_subunits/ld/deltaAF_long.noAMO_noLB.ldPruned_kept.keepMarine.R2_0.2.tsv.gz"
+
+# temporary lineage file; later replace with UPGMA-defined lineage
+CLUSTER_FILE <- "/work/cyu/mt_lineage_for_glm.tsv"
+
+OUTDIR <- "/work/cyu/ldx_all_subunits/ld/pairwise_deltaAF_similarity_ldpruned_mtlineage"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+N_PERM <- 2000
+
+# ============================================================
+# Functions
+# ============================================================
+normalize_pop <- function(x){
+  x <- toupper(x)
+  gsub("^(\\d+_)?([A-Z]+)(?:_S\\d+)?$", "\\2", x, perl = TRUE)
+}
+
+perm_test <- function(dist_obj, cl, nperm = 2000){
+
+  M <- as.matrix(dist_obj)
+  idx <- which(upper.tri(M), arr.ind = TRUE)
+
+  d <- M[upper.tri(M)]
+  same <- cl[idx[,1]] == cl[idx[,2]]
+
+  if(sum(same, na.rm = TRUE) == 0 || sum(!same, na.rm = TRUE) == 0){
+    return(list(
+      obs = NA_real_,
+      p_perm = NA_real_,
+      within = NA_real_,
+      between = NA_real_,
+      n_within_pairs = sum(same, na.rm = TRUE),
+      n_between_pairs = sum(!same, na.rm = TRUE),
+      n_perm_used = 0L,
+      note = "Not enough within/between pairs"
+    ))
+  }
+
+  within_obs  <- mean(d[same], na.rm = TRUE)
+  between_obs <- mean(d[!same], na.rm = TRUE)
+
+  # obs < 0 means within-cluster populations are more similar
+  obs <- within_obs - between_obs
+
+  ge <- 0L
+  used <- 0L
+
+  for(b in seq_len(nperm)){
+    clp <- sample(cl)
+    samep <- clp[idx[,1]] == clp[idx[,2]]
+
+    if(sum(samep, na.rm = TRUE) == 0 || sum(!samep, na.rm = TRUE) == 0) next
+
+    within_p  <- mean(d[samep], na.rm = TRUE)
+    between_p <- mean(d[!samep], na.rm = TRUE)
+
+    statp <- within_p - between_p
+
+    if(!is.finite(statp)) next
+
+    used <- used + 1L
+
+    # one-sided: is observed within-between smaller than random?
+    if(statp <= obs) ge <- ge + 1L
+  }
+
+  p <- if(used > 0) (1 + ge) / (1 + used) else NA_real_
+
+  list(
+    obs = obs,
+    p_perm = p,
+    within = within_obs,
+    between = between_obs,
+    n_within_pairs = sum(same, na.rm = TRUE),
+    n_between_pairs = sum(!same, na.rm = TRUE),
+    n_perm_used = used,
+    note = "obs = within - between; negative means within mt lineage more similar"
+  )
+}
+
+make_pairwise_table <- function(mat, cl, region_name, metric_name){
+
+  cor_mat <- cor(t(mat), use = "pairwise.complete.obs")
+  dist_mat <- 1 - cor_mat
+
+  M <- as.matrix(dist_mat)
+  idx <- which(upper.tri(M), arr.ind = TRUE)
+
+  data.table(
+    region = region_name,
+    metric = metric_name,
+    pop1 = rownames(M)[idx[,1]],
+    pop2 = colnames(M)[idx[,2]],
+    lineage1 = as.character(cl[idx[,1]]),
+    lineage2 = as.character(cl[idx[,2]]),
+    dist = M[upper.tri(M)],
+    type = ifelse(cl[idx[,1]] == cl[idx[,2]], "Within", "Between")
+  )
+}
+
+# ============================================================
+# Read deltaAF
+# ============================================================
+cat("[INFO] Reading deltaAF file...\n")
+DEL <- fread(DELTA_FILE)
+
+if ("Pop" %in% names(DEL)) setnames(DEL, "Pop", "pop")
+if ("Gene" %in% names(DEL)) setnames(DEL, "Gene", "gene")
+
+DEL[, pop := normalize_pop(pop)]
+DEL[, gene := tolower(gene)]
+
+if (!"deltaAF" %in% names(DEL)) {
+  stop("Cannot find deltaAF column.")
+}
+
+if (!"snp" %in% names(DEL)) {
+  if (all(c("chr", "pos") %in% names(DEL))) {
+    DEL[, snp := paste(chr, pos, sep = ":")]
+  } else {
+    stop("Need either snp column or chr/pos columns.")
+  }
+}
+
+if (!"region" %in% names(DEL)) {
+  DEL[, region := "ALL"]
+}
+
+DEL <- DEL[is.finite(deltaAF)]
+
+cat("[INFO] deltaAF rows:", nrow(DEL), "\n")
+cat("[INFO] populations:", uniqueN(DEL$pop), "\n")
+cat("[INFO] genes:", uniqueN(DEL$gene), "\n")
+cat("[INFO] SNPs:", uniqueN(DEL$snp), "\n")
+
+# ============================================================
+# Read mt lineage
+# ============================================================
+CL <- fread(CLUSTER_FILE)
+
+setnames(CL, names(CL), tolower(names(CL)))
+
+if (!all(c("pop", "mt_lineage") %in% names(CL))) {
+  stop("CLUSTER_FILE must contain columns: pop, mt_lineage")
+}
+
+CL[, pop := normalize_pop(pop)]
+CL[, mt_lineage := as.factor(mt_lineage)]
+CL <- unique(CL, by = "pop")
+
+cat("[INFO] mt lineages loaded:\n")
+print(CL[, .N, by = mt_lineage][order(mt_lineage)])
+
+# ============================================================
+# Merge
+# ============================================================
+DEL <- merge(DEL, CL, by = "pop", all.x = TRUE)
+DEL <- DEL[!is.na(mt_lineage)]
+
+cat("[INFO] rows after lineage merge:", nrow(DEL), "\n")
+cat("[INFO] populations after merge:", uniqueN(DEL$pop), "\n")
+print(DEL[, .N, by = .(pop, mt_lineage)][order(mt_lineage, pop)])
+
+# ============================================================
+# Make population x SNP matrix and run tests
+# ============================================================
+ALL_PAIRWISE <- list()
+SUMMARY_LIST <- list()
+
+regions <- sort(unique(DEL$region))
+
+for (r in regions) {
+
+  cat("\n================ Region:", r, "================\n")
+
+  X <- DEL[region == r]
+
+  # Pop x SNP matrix
+  W <- dcast(
+    X,
+    pop + mt_lineage ~ snp,
+    value.var = "deltaAF",
+    fun.aggregate = mean,
+    fill = NA_real_
+  )
+
+  if (nrow(W) < 4) {
+    cat("[WARN] too few populations; skip region:", r, "\n")
+    next
+  }
+
+  mat <- as.matrix(W[, -(1:2)])
+  rownames(mat) <- W$pop
+  cl <- W$mt_lineage
+
+  # remove SNP columns with all NA or zero variance
+  keep_cols <- apply(mat, 2, function(z) {
+    sum(is.finite(z)) >= 3 && sd(z, na.rm = TRUE) > 0
+  })
+
+  mat <- mat[, keep_cols, drop = FALSE]
+
+  cat("[INFO] populations:", nrow(mat), "\n")
+  cat("[INFO] SNPs retained in matrix:", ncol(mat), "\n")
+  print(data.table(pop = rownames(mat), mt_lineage = cl)[order(mt_lineage, pop)])
+
+  if (ncol(mat) < 10) {
+    cat("[WARN] too few SNPs after filtering; skip region:", r, "\n")
+    next
+  }
+
+  # Signed deltaAF
+  cor_signed <- cor(t(mat), use = "pairwise.complete.obs")
+  dist_signed <- as.dist(1 - cor_signed)
+
+  out_signed <- perm_test(dist_signed, cl, nperm = N_PERM)
+
+  SUMMARY_LIST[[paste(r, "Signed_deltaAF", sep = "__")]] <- data.table(
+    region = r,
+    metric = "Signed_deltaAF",
+    obs = out_signed$obs,
+    p_perm = out_signed$p_perm,
+    within = out_signed$within,
+    between = out_signed$between,
+    n_within_pairs = out_signed$n_within_pairs,
+    n_between_pairs = out_signed$n_between_pairs,
+    n_perm_used = out_signed$n_perm_used,
+    note = out_signed$note
+  )
+
+  ALL_PAIRWISE[[paste(r, "Signed_deltaAF", sep = "__")]] <- make_pairwise_table(
+    mat, cl, r, "Signed_deltaAF"
+  )
+
+  # Absolute deltaAF
+  abs_mat <- abs(mat)
+
+  cor_abs <- cor(t(abs_mat), use = "pairwise.complete.obs")
+  dist_abs <- as.dist(1 - cor_abs)
+
+  out_abs <- perm_test(dist_abs, cl, nperm = N_PERM)
+
+  SUMMARY_LIST[[paste(r, "Abs_deltaAF", sep = "__")]] <- data.table(
+    region = r,
+    metric = "Abs_deltaAF",
+    obs = out_abs$obs,
+    p_perm = out_abs$p_perm,
+    within = out_abs$within,
+    between = out_abs$between,
+    n_within_pairs = out_abs$n_within_pairs,
+    n_between_pairs = out_abs$n_between_pairs,
+    n_perm_used = out_abs$n_perm_used,
+    note = out_abs$note
+  )
+
+  ALL_PAIRWISE[[paste(r, "Abs_deltaAF", sep = "__")]] <- make_pairwise_table(
+    abs_mat, cl, r, "Abs_deltaAF"
+  )
+}
+
+PAIRWISE <- rbindlist(ALL_PAIRWISE, fill = TRUE)
+SUMMARY <- rbindlist(SUMMARY_LIST, fill = TRUE)
+
+pairwise_out <- file.path(OUTDIR, "pairwise_deltaAF_similarity_within_between.tsv")
+summary_out <- file.path(OUTDIR, "pairwise_deltaAF_similarity_summary.tsv")
+
+fwrite(PAIRWISE, pairwise_out, sep = "\t")
+fwrite(SUMMARY, summary_out, sep = "\t")
+
+cat("\n[OK] wrote:", pairwise_out, "\n")
+cat("[OK] wrote:", summary_out, "\n")
+
+cat("\nSummary:\n")
+print(SUMMARY)
+
+# ============================================================
+# Plot signed deltaAF only
+# ============================================================
+P <- PAIRWISE[metric == "Signed_deltaAF"]
+P[, type := factor(type, levels = c("Within", "Between"))]
+
+BAR <- P[, .(
+  mean_dist = mean(dist, na.rm = TRUE),
+  se_dist = sd(dist, na.rm = TRUE) / sqrt(.N),
+  n_pairs = .N
+), by = .(region, type)]
+
+LAB <- SUMMARY[metric == "Signed_deltaAF"]
+LAB[, label := ifelse(
+  p_perm < 0.05,
+  paste0("p = ", signif(p_perm, 2), " *"),
+  paste0("p = ", signif(p_perm, 2))
+)]
+
+ypos <- BAR[, .(
+  y = max(mean_dist + se_dist, na.rm = TRUE) * 1.10
+), by = region]
+
+LAB <- merge(LAB, ypos, by = "region", all.x = TRUE)
+
+p1 <- ggplot(BAR, aes(x = type, y = mean_dist, fill = type)) +
+  geom_col(width = 0.6, alpha = 0.85) +
+  geom_errorbar(
+    aes(ymin = mean_dist - se_dist, ymax = mean_dist + se_dist),
+    width = 0.18,
+    linewidth = 0.7
+  ) +
+  geom_text(
+    data = LAB,
+    aes(x = 1.5, y = y, label = label),
+    inherit.aes = FALSE,
+    size = 4
+  ) +
+  facet_wrap(~region, scales = "free_y") +
+  theme_classic(base_size = 14) +
+  labs(
+    x = NULL,
+    y = "1 - correlation of ΔAF profiles",
+    title = "Nuclear OXPHOS ΔAF similarity within and between mitochondrial lineages"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+
+fig1 <- file.path(OUTDIR, "Fig_pairwise_similarity_barplot_signed_deltaAF_SE.png")
+ggsave(fig1, p1, width = 6.5, height = 4.5, dpi = 300)
+
+# ============================================================
+# Plot boxplot signed deltaAF
+# ============================================================
+p2 <- ggplot(P, aes(x = type, y = dist, fill = type)) +
+  geom_boxplot(outlier.shape = NA, width = 0.6, alpha = 0.65) +
+  geom_jitter(width = 0.12, alpha = 0.4, size = 1) +
+  facet_wrap(~region, scales = "free_y") +
+  theme_classic(base_size = 14) +
+  labs(
+    x = NULL,
+    y = "1 - correlation of ΔAF profiles",
+    title = "Pairwise nuclear OXPHOS ΔAF distances"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+
+fig2 <- file.path(OUTDIR, "Fig_pairwise_similarity_boxplot_signed_deltaAF.png")
+ggsave(fig2, p2, width = 6.5, height = 4.5, dpi = 300)
+
+cat("[OK] saved:", fig1, "\n")
+cat("[OK] saved:", fig2, "\n")
+cat("\nDONE\n")
+
+RSCRIPT
+
+Rscript /work/cyu/ldx_all_subunits/run_pairwise_deltaAF_similarity_ldpruned_mtlineage.R
+
+
+
+
+
+
+
+
+cat > /work/cyu/ldx_all_subunits/run_pairwise_deltaAF_similarity_ldpruned_effectFiltered_10000perm.R <<'RSCRIPT'
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+})
+
+# ============================================================
+# Input
+# ============================================================
+DELTA_FILE <- "/work/cyu/ldx_all_subunits/ld/deltaAF_long.noAMO_noLB.ldPruned_kept.keepMarine.R2_0.2.tsv.gz"
+
+# temporary lineage file; later replace with UPGMA-defined lineage file
+CLUSTER_FILE <- "/work/cyu/mt_lineage_for_glm.tsv"
+
+OUTDIR <- "/work/cyu/ldx_all_subunits/ld/pairwise_deltaAF_similarity_ldpruned_effectFiltered_10000perm"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================
+# Parameters
+# ============================================================
+N_PERM <- 10000
+set.seed(123)
+
+MIN_DEPTH <- 20
+
+# effect-size filter:
+# keep only SNPs with max lineage AF difference >= this threshold
+EFFECT_THRESHOLD <- 0.20
+
+# minimum number of finite SNPs required in pairwise correlation matrix
+MIN_SNPS_MATRIX <- 10
+
+# ============================================================
+# Functions
+# ============================================================
+normalize_pop <- function(x){
+  x <- toupper(x)
+  gsub("^(\\d+_)?([A-Z]+)(?:_S\\d+)?$", "\\2", x, perl = TRUE)
+}
+
+perm_test <- function(dist_obj, cl, nperm = 10000){
+
+  M <- as.matrix(dist_obj)
+  idx <- which(upper.tri(M), arr.ind = TRUE)
+
+  d <- M[upper.tri(M)]
+  same <- cl[idx[,1]] == cl[idx[,2]]
+
+  if(sum(same, na.rm = TRUE) == 0 || sum(!same, na.rm = TRUE) == 0){
+    return(list(
+      obs = NA_real_,
+      p_perm = NA_real_,
+      within = NA_real_,
+      between = NA_real_,
+      n_within_pairs = sum(same, na.rm = TRUE),
+      n_between_pairs = sum(!same, na.rm = TRUE),
+      n_perm_used = 0L,
+      perm_stats = numeric(0),
+      note = "Not enough within/between pairs"
+    ))
+  }
+
+  within_obs  <- mean(d[same], na.rm = TRUE)
+  between_obs <- mean(d[!same], na.rm = TRUE)
+
+  # obs < 0 means within-lineage populations are more similar
+  obs <- within_obs - between_obs
+
+  ge <- 0L
+  used <- 0L
+  perm_stats <- numeric(nperm)
+
+  for(b in seq_len(nperm)){
+    clp <- sample(cl)
+    samep <- clp[idx[,1]] == clp[idx[,2]]
+
+    if(sum(samep, na.rm = TRUE) == 0 || sum(!samep, na.rm = TRUE) == 0){
+      perm_stats[b] <- NA_real_
+      next
+    }
+
+    within_p  <- mean(d[samep], na.rm = TRUE)
+    between_p <- mean(d[!samep], na.rm = TRUE)
+    statp <- within_p - between_p
+
+    if(!is.finite(statp)){
+      perm_stats[b] <- NA_real_
+      next
+    }
+
+    used <- used + 1L
+    perm_stats[b] <- statp
+
+    # one-sided:
+    # Is observed within-between smaller than random?
+    if(statp <= obs) ge <- ge + 1L
+  }
+
+  p <- if(used > 0) (1 + ge) / (1 + used) else NA_real_
+
+  list(
+    obs = obs,
+    p_perm = p,
+    within = within_obs,
+    between = between_obs,
+    n_within_pairs = sum(same, na.rm = TRUE),
+    n_between_pairs = sum(!same, na.rm = TRUE),
+    n_perm_used = used,
+    perm_stats = perm_stats,
+    note = "obs = within - between; negative means within mt lineage more similar"
+  )
+}
+
+make_pairwise_table <- function(mat, cl, region_name, metric_name){
+
+  cor_mat <- cor(t(mat), use = "pairwise.complete.obs")
+  dist_mat <- 1 - cor_mat
+
+  M <- as.matrix(dist_mat)
+  idx <- which(upper.tri(M), arr.ind = TRUE)
+
+  data.table(
+    region = region_name,
+    metric = metric_name,
+    pop1 = rownames(M)[idx[,1]],
+    pop2 = colnames(M)[idx[,2]],
+    lineage1 = as.character(cl[idx[,1]]),
+    lineage2 = as.character(cl[idx[,2]]),
+    dist = M[upper.tri(M)],
+    type = ifelse(cl[idx[,1]] == cl[idx[,2]], "Within", "Between")
+  )
+}
+
+run_one_region_metric <- function(mat, cl, region_name, metric_name, nperm){
+
+  if(metric_name == "Signed_deltaAF"){
+    use_mat <- mat
+  } else if(metric_name == "Abs_deltaAF"){
+    use_mat <- abs(mat)
+  } else {
+    stop("Unknown metric_name")
+  }
+
+  cor_mat <- cor(t(use_mat), use = "pairwise.complete.obs")
+  dist_obj <- as.dist(1 - cor_mat)
+
+  out <- perm_test(dist_obj, cl, nperm = nperm)
+
+  pairwise <- make_pairwise_table(
+    use_mat,
+    cl,
+    region_name,
+    metric_name
+  )
+
+  summary <- data.table(
+    region = region_name,
+    metric = metric_name,
+    obs = out$obs,
+    p_perm = out$p_perm,
+    within = out$within,
+    between = out$between,
+    n_within_pairs = out$n_within_pairs,
+    n_between_pairs = out$n_between_pairs,
+    n_perm_used = out$n_perm_used,
+    note = out$note
+  )
+
+  list(
+    summary = summary,
+    pairwise = pairwise,
+    perm_stats = out$perm_stats
+  )
+}
+
+# ============================================================
+# Read deltaAF
+# ============================================================
+cat("[INFO] Reading deltaAF file...\n")
+DEL <- fread(DELTA_FILE)
+
+if ("Pop" %in% names(DEL)) setnames(DEL, "Pop", "pop")
+if ("Gene" %in% names(DEL)) setnames(DEL, "Gene", "gene")
+
+DEL[, pop := normalize_pop(pop)]
+DEL[, gene := tolower(as.character(gene))]
+
+if (!"deltaAF" %in% names(DEL)) {
+  stop("Cannot find deltaAF column.")
+}
+
+if (!"snp" %in% names(DEL)) {
+  if (all(c("chr", "pos") %in% names(DEL))) {
+    DEL[, snp := paste(chr, pos, sep = ":")]
+  } else {
+    stop("Need either snp column or chr/pos columns.")
+  }
+}
+
+if (!"region" %in% names(DEL)) {
+  DEL[, region := "ALL"]
+}
+
+if (!all(c("af", "depth") %in% names(DEL))) {
+  stop("Need af and depth columns to compute max lineage AF difference.")
+}
+
+DEL[, af := as.numeric(af)]
+DEL[, depth := as.numeric(depth)]
+DEL[, deltaAF := as.numeric(deltaAF)]
+
+DEL <- DEL[
+  is.finite(deltaAF) &
+  is.finite(af) &
+  is.finite(depth) &
+  af >= 0 & af <= 1 &
+  depth >= MIN_DEPTH
+]
+
+cat("[INFO] rows after depth/AF filter:", nrow(DEL), "\n")
+cat("[INFO] populations:", uniqueN(DEL$pop), "\n")
+cat("[INFO] genes:", uniqueN(DEL$gene), "\n")
+cat("[INFO] SNPs:", uniqueN(DEL$snp), "\n")
+
+# ============================================================
+# Read mt lineage
+# ============================================================
+CL <- fread(CLUSTER_FILE)
+setnames(CL, names(CL), tolower(names(CL)))
+
+if (!all(c("pop", "mt_lineage") %in% names(CL))) {
+  stop("CLUSTER_FILE must contain columns: pop, mt_lineage")
+}
+
+CL[, pop := normalize_pop(pop)]
+CL[, mt_lineage := as.factor(mt_lineage)]
+CL <- unique(CL, by = "pop")
+
+cat("[INFO] mt lineages loaded:\n")
+print(CL[, .N, by = mt_lineage][order(mt_lineage)])
+
+# ============================================================
+# Merge
+# ============================================================
+DEL <- merge(DEL, CL, by = "pop", all.x = TRUE)
+DEL <- DEL[!is.na(mt_lineage)]
+
+cat("[INFO] rows after lineage merge:", nrow(DEL), "\n")
+cat("[INFO] populations after merge:", uniqueN(DEL$pop), "\n")
+print(DEL[, .N, by = .(pop, mt_lineage)][order(mt_lineage, pop)])
+
+# ============================================================
+# Effect-size filter:
+# For each region and SNP, calculate depth-weighted AF per mt lineage
+# max_lineage_AF_diff = max(lineage_AF) - min(lineage_AF)
+# ============================================================
+cat("\n[INFO] Calculating max lineage AF difference per SNP...\n")
+
+DEL[, focal_count := round(af * depth)]
+DEL[, focal_count := pmax(0, pmin(focal_count, depth))]
+DEL[, other_count := depth - focal_count]
+
+lineage_af <- DEL[, .(
+  lineage_focal_count = sum(focal_count, na.rm = TRUE),
+  lineage_depth = sum(depth, na.rm = TRUE),
+  n_pops_lineage = uniqueN(pop)
+), by = .(region, snp, mt_lineage)]
+
+lineage_af <- lineage_af[lineage_depth > 0]
+lineage_af[, lineage_AF := lineage_focal_count / lineage_depth]
+
+snp_effect <- lineage_af[, .(
+  n_lineages = uniqueN(mt_lineage),
+  max_lineage_AF = max(lineage_AF, na.rm = TRUE),
+  min_lineage_AF = min(lineage_AF, na.rm = TRUE),
+  max_lineage_AF_diff = max(lineage_AF, na.rm = TRUE) - min(lineage_AF, na.rm = TRUE),
+  max_lineage = as.character(mt_lineage[which.max(lineage_AF)][1]),
+  min_lineage = as.character(mt_lineage[which.min(lineage_AF)][1])
+), by = .(region, snp)]
+
+snp_effect[, pass_effect_filter := n_lineages >= 2 & max_lineage_AF_diff >= EFFECT_THRESHOLD]
+
+effect_out <- file.path(OUTDIR, "SNP_max_lineage_AF_difference.tsv")
+fwrite(snp_effect[order(region, -max_lineage_AF_diff)], effect_out, sep = "\t")
+cat("[OK] wrote:", effect_out, "\n")
+
+cat("\n[INFO] SNP effect filter summary:\n")
+print(snp_effect[, .(
+  total_snps = .N,
+  pass_snps = sum(pass_effect_filter),
+  median_max_lineage_AF_diff = median(max_lineage_AF_diff, na.rm = TRUE),
+  max_max_lineage_AF_diff = max(max_lineage_AF_diff, na.rm = TRUE)
+), by = region])
+
+# Keep only effect-filtered SNPs
+keep_snps <- snp_effect[pass_effect_filter == TRUE, .(region, snp)]
+
+DEL_filt <- merge(
+  DEL,
+  keep_snps,
+  by = c("region", "snp"),
+  all = FALSE
+)
+
+cat("\n[INFO] rows after effect filter:", nrow(DEL_filt), "\n")
+cat("[INFO] SNPs after effect filter by region:\n")
+print(DEL_filt[, .(n_snps = uniqueN(snp), n_rows = .N), by = region])
+
+# ============================================================
+# Make population x SNP matrix and run tests
+# ============================================================
+ALL_PAIRWISE <- list()
+SUMMARY_LIST <- list()
+PERM_LIST <- list()
+
+regions <- sort(unique(DEL_filt$region))
+
+for (r in regions) {
+
+  cat("\n================ Region:", r, "================\n")
+
+  X <- DEL_filt[region == r]
+
+  W <- dcast(
+    X,
+    pop + mt_lineage ~ snp,
+    value.var = "deltaAF",
+    fun.aggregate = mean,
+    fill = NA_real_
+  )
+
+  if (nrow(W) < 4) {
+    cat("[WARN] too few populations; skip region:", r, "\n")
+    next
+  }
+
+  mat <- as.matrix(W[, -(1:2)])
+  rownames(mat) <- W$pop
+  cl <- W$mt_lineage
+
+  # Remove SNP columns with too many missing values or zero variance
+  keep_cols <- apply(mat, 2, function(z) {
+    sum(is.finite(z)) >= 3 && sd(z, na.rm = TRUE) > 0
+  })
+
+  mat <- mat[, keep_cols, drop = FALSE]
+
+  cat("[INFO] populations:", nrow(mat), "\n")
+  cat("[INFO] effect-filtered SNPs retained in matrix:", ncol(mat), "\n")
+  print(data.table(pop = rownames(mat), mt_lineage = cl)[order(mt_lineage, pop)])
+
+  if (ncol(mat) < MIN_SNPS_MATRIX) {
+    cat("[WARN] too few SNPs after filtering; skip region:", r, "\n")
+    next
+  }
+
+  # Signed ΔAF
+  signed_res <- run_one_region_metric(
+    mat = mat,
+    cl = cl,
+    region_name = r,
+    metric_name = "Signed_deltaAF",
+    nperm = N_PERM
+  )
+
+  SUMMARY_LIST[[paste(r, "Signed_deltaAF", sep = "__")]] <- signed_res$summary
+  ALL_PAIRWISE[[paste(r, "Signed_deltaAF", sep = "__")]] <- signed_res$pairwise
+  PERM_LIST[[paste(r, "Signed_deltaAF", sep = "__")]] <- signed_res$perm_stats
+
+  # Abs ΔAF
+  abs_res <- run_one_region_metric(
+    mat = mat,
+    cl = cl,
+    region_name = r,
+    metric_name = "Abs_deltaAF",
+    nperm = N_PERM
+  )
+
+  SUMMARY_LIST[[paste(r, "Abs_deltaAF", sep = "__")]] <- abs_res$summary
+  ALL_PAIRWISE[[paste(r, "Abs_deltaAF", sep = "__")]] <- abs_res$pairwise
+  PERM_LIST[[paste(r, "Abs_deltaAF", sep = "__")]] <- abs_res$perm_stats
+}
+
+PAIRWISE <- rbindlist(ALL_PAIRWISE, fill = TRUE)
+SUMMARY <- rbindlist(SUMMARY_LIST, fill = TRUE)
+
+pairwise_out <- file.path(
+  OUTDIR,
+  paste0("pairwise_deltaAF_similarity_within_between_effect", EFFECT_THRESHOLD, "_10000perm.tsv")
+)
+
+summary_out <- file.path(
+  OUTDIR,
+  paste0("pairwise_deltaAF_similarity_summary_effect", EFFECT_THRESHOLD, "_10000perm.tsv")
+)
+
+fwrite(PAIRWISE, pairwise_out, sep = "\t")
+fwrite(SUMMARY, summary_out, sep = "\t")
+
+cat("\n[OK] wrote:", pairwise_out, "\n")
+cat("[OK] wrote:", summary_out, "\n")
+
+cat("\nSummary:\n")
+print(SUMMARY)
+
+# ============================================================
+# AK vs BC difference test
+# Difference statistic:
+#   diff_obs = obs_BC - obs_AK
+# Since obs is within - between, more negative = stronger within-lineage similarity.
+# diff_obs < 0 means BC has stronger within-lineage similarity than AK.
+# We build a null distribution by independently permuting lineage labels within AK and BC.
+# ============================================================
+REGION_DIFF <- data.table()
+
+for (metric_name in c("Signed_deltaAF", "Abs_deltaAF")) {
+
+  ak_key <- paste("AK", metric_name, sep = "__")
+  bc_key <- paste("BC", metric_name, sep = "__")
+
+  if (!ak_key %in% names(PERM_LIST) || !bc_key %in% names(PERM_LIST)) {
+    next
+  }
+
+  obs_AK <- SUMMARY[region == "AK" & metric == metric_name, obs]
+  obs_BC <- SUMMARY[region == "BC" & metric == metric_name, obs]
+
+  perm_AK <- PERM_LIST[[ak_key]]
+  perm_BC <- PERM_LIST[[bc_key]]
+
+  n <- min(length(perm_AK), length(perm_BC))
+  perm_diff <- perm_BC[seq_len(n)] - perm_AK[seq_len(n)]
+  perm_diff <- perm_diff[is.finite(perm_diff)]
+
+  obs_diff <- obs_BC - obs_AK
+
+  # one-sided:
+  # is BC more negative/stronger than AK?
+  p_region <- (1 + sum(perm_diff <= obs_diff, na.rm = TRUE)) / (1 + length(perm_diff))
+
+  REGION_DIFF <- rbind(
+    REGION_DIFF,
+    data.table(
+      metric = metric_name,
+      obs_AK = obs_AK,
+      obs_BC = obs_BC,
+      obs_diff_BC_minus_AK = obs_diff,
+      p_perm_BC_stronger_than_AK = p_region,
+      n_perm_used = length(perm_diff),
+      note = "negative obs_diff means BC has stronger within-lineage similarity than AK"
+    ),
+    fill = TRUE
+  )
+}
+
+region_diff_out <- file.path(
+  OUTDIR,
+  paste0("AK_vs_BC_difference_test_effect", EFFECT_THRESHOLD, "_10000perm.tsv")
+)
+
+fwrite(REGION_DIFF, region_diff_out, sep = "\t")
+cat("\n[OK] wrote:", region_diff_out, "\n")
+cat("\nAK vs BC difference test:\n")
+print(REGION_DIFF)
+
+# ============================================================
+# Plot signed and abs barplots
+# ============================================================
+plot_bar <- function(metric_name, ylab, outfile){
+
+  P <- PAIRWISE[metric == metric_name]
+  P[, type := factor(type, levels = c("Within", "Between"))]
+
+  BAR <- P[, .(
+    mean_dist = mean(dist, na.rm = TRUE),
+    se_dist = sd(dist, na.rm = TRUE) / sqrt(.N),
+    n_pairs = .N
+  ), by = .(region, type)]
+
+  LAB <- SUMMARY[metric == metric_name]
+  LAB[, label := ifelse(
+    p_perm < 0.05,
+    paste0("p = ", signif(p_perm, 2), " *"),
+    paste0("p = ", signif(p_perm, 2))
+  )]
+
+  ypos <- BAR[, .(
+    y = max(mean_dist + se_dist, na.rm = TRUE) * 1.10
+  ), by = region]
+
+  LAB <- merge(LAB, ypos, by = "region", all.x = TRUE)
+
+  p <- ggplot(BAR, aes(x = type, y = mean_dist, fill = type)) +
+    geom_col(width = 0.6, alpha = 0.85) +
+    geom_errorbar(
+      aes(ymin = mean_dist - se_dist, ymax = mean_dist + se_dist),
+      width = 0.18,
+      linewidth = 0.7
+    ) +
+    geom_text(
+      data = LAB,
+      aes(x = 1.5, y = y, label = label),
+      inherit.aes = FALSE,
+      size = 4
+    ) +
+    facet_wrap(~region, scales = "free_y") +
+    theme_classic(base_size = 14) +
+    labs(
+      x = NULL,
+      y = ylab,
+      title = paste0("Effect-filtered SNPs: max lineage AF difference ≥ ", EFFECT_THRESHOLD)
+    ) +
+    theme(
+      legend.position = "none",
+      strip.text = element_text(face = "bold"),
+      plot.title = element_text(face = "bold")
+    )
+
+  ggsave(outfile, p, width = 6.8, height = 4.6, dpi = 300)
+  cat("[OK] saved:", outfile, "\n")
+}
+
+plot_box <- function(metric_name, ylab, outfile){
+
+  P <- PAIRWISE[metric == metric_name]
+  P[, type := factor(type, levels = c("Within", "Between"))]
+
+  p <- ggplot(P, aes(x = type, y = dist, fill = type)) +
+    geom_boxplot(outlier.shape = NA, width = 0.6, alpha = 0.65) +
+    geom_jitter(width = 0.12, alpha = 0.4, size = 1) +
+    facet_wrap(~region, scales = "free_y") +
+    theme_classic(base_size = 14) +
+    labs(
+      x = NULL,
+      y = ylab,
+      title = paste0("Effect-filtered pairwise distances: max lineage AF difference ≥ ", EFFECT_THRESHOLD)
+    ) +
+    theme(
+      legend.position = "none",
+      strip.text = element_text(face = "bold"),
+      plot.title = element_text(face = "bold")
+    )
+
+  ggsave(outfile, p, width = 6.8, height = 4.6, dpi = 300)
+  cat("[OK] saved:", outfile, "\n")
+}
+
+plot_bar(
+  "Signed_deltaAF",
+  "1 - correlation of ΔAF profiles",
+  file.path(OUTDIR, paste0("Fig_pairwise_similarity_barplot_signed_effect", EFFECT_THRESHOLD, "_10000perm.png"))
+)
+
+plot_box(
+  "Signed_deltaAF",
+  "1 - correlation of ΔAF profiles",
+  file.path(OUTDIR, paste0("Fig_pairwise_similarity_boxplot_signed_effect", EFFECT_THRESHOLD, "_10000perm.png"))
+)
+
+plot_bar(
+  "Abs_deltaAF",
+  "1 - correlation of |ΔAF| profiles",
+  file.path(OUTDIR, paste0("Fig_pairwise_similarity_barplot_abs_effect", EFFECT_THRESHOLD, "_10000perm.png"))
+)
+
+plot_box(
+  "Abs_deltaAF",
+  "1 - correlation of |ΔAF| profiles",
+  file.path(OUTDIR, paste0("Fig_pairwise_similarity_boxplot_abs_effect", EFFECT_THRESHOLD, "_10000perm.png"))
+)
+
+cat("\nDONE\n")
+
+RSCRIPT
+
+Rscript /work/cyu/ldx_all_subunits/run_pairwise_deltaAF_similarity_ldpruned_effectFiltered_10000perm.R

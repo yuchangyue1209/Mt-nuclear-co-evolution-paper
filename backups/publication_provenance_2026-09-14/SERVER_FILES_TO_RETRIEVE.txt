@@ -1,0 +1,47 @@
+# High-priority manuscript scripts identified from the server inventory.
+# One absolute server path per line. Lines beginning with # are ignored.
+
+# Figure 2: divergence and polymorphism
+/work/cyu/Kuster2026_genomewide_reanalysis/09_build_codeml_master_table.R
+/work/cyu/Kuster2026_genomewide_reanalysis/10_primary_codeml_tests.R
+/work/cyu/Kuster2026_genomewide_reanalysis/11_plot_complete_updated_Figure2_large_fonts.R
+/mnt/spareHD_2/nu_287/pinpis/scripts/02_pinpis_from_sync.py
+/mnt/spareHD_2/nu_287/pinpis/scripts/03_run_pinpis_all.sh
+/mnt/spareHD_2/nu_287/pinpis/results/00_plot_pi_mt_nu_6panels.R
+/mnt/spareHD_2/nu_287/pinpis/results/01_plot_pi_complex_mt_nu_ass_stars.R
+/mnt/spareHD_2/nu_287/pinpis/results/02_plot_pi_core_vs_noncore.R
+/mnt/spareHD_2/nu_287/pinpis/results/03_plot_pi_ars_ribo.R
+
+# Figure 3: final ERC summaries and validation
+/mnt/spareHD_2/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman/01_erc_category_statistics.R
+/mnt/spareHD_2/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman/02_weaver_gene_set_erc.R
+/mnt/spareHD_2/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman/03_validate_CIV_ERC.R
+/mnt/spareHD_2/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman/04_all_complex_permutation_and_membership_audit.R
+/mnt/spareHD_2/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman/05_plot_Weaver_style_ERC.R
+
+# Figure 4: PBS and population-structure-controlled associations
+/work/cyu/gene_fst_work_withNorway/pbs_mt_vs_nuclear_NorwayOutgroup/run_OXPHOS72_chr21_controlled_PBS.R
+/work/cyu/gene_fst_work_withNorway/pbs_mt_vs_nuclear_NorwayOutgroup/plot_Figure4_originalAB_controlledC_Jesse.R
+/work/cyu/gene_fst_work_withNorway/run_287gene_PBS_NorwayOutgroup_dropLB.R
+
+# Figure 5: fixed shared SNPs and recent-population validation
+/work/cyu/Kuster2026_genomewide_reanalysis/Figure5_deltaAF_sharedSNP_final.R
+/work/cyu/Kuster2026_genomewide_reanalysis/Figure5_recent_populations_fixedSNP.R
+/work/cyu/Kuster2026_genomewide_reanalysis/FigureS5_AB_with_recent_populations.R
+/mnt/spareHD_2/nu_287/q2_parallelism/calc_deltaAF_withAMO_noLB_Jesse.R
+/mnt/spareHD_2/nu_287/q2_parallelism/sync_to_deltaAF_withAMO_noLB_Jesse.py
+/mnt/spareHD_2/nu_287/q2_parallelism/select_sharedSNP_Fig3B_withAMO_noLB_Jesse.R
+
+# Figure 6: geography and mitochondrial-lineage models
+/work/cyu/ldx_all_subunits_withAMO_noLB_DP20/run_OXPHOS72_geoLatLong_mtlineage_GLM_mainAB_Cseparate.R
+/work/cyu/ldx_all_subunits/run_pairwise_deltaAF_similarity_ldpruned_effectFiltered_oneSNPperGene_10000perm.R
+
+# Recurrent nonsynonymous substitutions and functional prediction
+/work/cyu/OXPHOS_structural_validation/recal_287_nonsyn_from_sync.py
+/work/cyu/OXPHOS_structural_validation/make_priority_table.py
+/work/cyu/make_AA_inputs_OXPHOS72.py
+/work/cyu/provean_inputs_OXPHOS72/run_sift4g_OXPHOS72_teleostDB.py
+/work/cyu/provean_inputs_OXPHOS72/score_AA_substitutions_conservation_OXPHOS72.py
+
+# COX4I1 structural figure
+/work/cyu/OXPHOS_structural_validation/plot_Figure7_COX4I1.R

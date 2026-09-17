@@ -1,0 +1,10 @@
+#!/usr/bin/env Rscript
+suppressPackageStartupMessages(library(ape))
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 2L) stop("Usage: script input_tree.nwk output_tree.nwk")
+excluded <- c("SC", "CH", "LB", "PACH", "FRED")
+tree <- read.tree(args[[1L]])
+if (!all(excluded %in% tree$tip.label)) stop("Recent populations missing from tree")
+tree <- drop.tip(tree, excluded)
+if (length(tree$tip.label) != 22L) stop("Expected 22 retained tips")
+write.tree(tree, file = args[[2L]])

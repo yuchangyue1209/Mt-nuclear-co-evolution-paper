@@ -61,8 +61,8 @@ gene_pi_long <- df %>%
 pop_order <- c(
   # Alaska
   "RS",
-  "SC", "CH",
-  "FG", "LG", "SR", "SL", "TL", "WB", "WT", "WK", "LB",
+  "SC", "CH","LB",
+  "FG", "LG", "SR", "SL", "TL", "WB", "WT", "WK",
   
   # BC
   "SAY",
@@ -122,10 +122,10 @@ p <- ggplot(gene_pi_long, aes(x = Population, y = pi, fill = Complex)) +
   facet_grid(~Region, scales = "free_x", space = "free_x") +
   coord_cartesian(ylim = c(0, 0.018)) +
   labs(
-    title = "Nucleotide Diversity per Complex across Populations",
+
     x = "Population",
     y = expression(pi),
-    fill = "Complex"
+    fill = "OXPHOS Complex"
   ) +
   theme_bw(base_size = 14) +
   theme(

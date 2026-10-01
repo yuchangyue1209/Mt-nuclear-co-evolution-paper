@@ -1,0 +1,2 @@
+n_gene	same_direction_genes	proportion_same_direction	null_probability	p_value	confidence_lower	confidence_upper
+72	67	0.930555555555556	0.5	6.3877308356783e-15	0.845332685183877	0.977068340846255

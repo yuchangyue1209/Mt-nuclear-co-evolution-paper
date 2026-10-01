@@ -1,0 +1,3 @@
+test	estimate	p_value	n_gene	populations
+Pearson	0.780606754036682	6.22752073799507e-16	72	all 25 freshwater populations
+Spearman	0.821146904658099	1.02329708531434e-18	72	all 25 freshwater populations

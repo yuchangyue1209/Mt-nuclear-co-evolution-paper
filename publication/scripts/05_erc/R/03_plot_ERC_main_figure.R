@@ -12,9 +12,10 @@ base_theme <- theme_classic(base_size = 17) + theme(
   plot.title = element_text(size = 20, face = "bold"), legend.position = "bottom",
   legend.title = element_blank(), plot.margin = margin(8, 16, 8, 8))
 
-functional_order <- c("Cyto_ARS_control", "Cyto_ribosomal_control", "OXPHOS_assembly_factors",
+functional_order <- c("Genomewide_nuclear", "Non_nmt", "Cyto_ARS_control", "Cyto_ribosomal_control", "OXPHOS_assembly_factors",
   "Nmt_ARS", "Nmt_ribosomal", "Nmt_OXPHOS_structural", "Indirect_nmt", "Direct_nmt")
-functional_labels <- c(Cyto_ARS_control = "Cyto-ARS", Cyto_ribosomal_control = "Cyto-ribo",
+functional_labels <- c(Genomewide_nuclear = "Genome-wide nuclear", Non_nmt = "Non-n-mt",
+  Cyto_ARS_control = "Cyto-ARS", Cyto_ribosomal_control = "Cyto-ribo",
   OXPHOS_assembly_factors = "OXPHOS assembly", Nmt_ARS = "Nmt-ARS", Nmt_ribosomal = "Nmt-ribo",
   Nmt_OXPHOS_structural = "N-mt OXPHOS", Indirect_nmt = "Indirect n-mt", Direct_nmt = "Direct n-mt")
 a <- x[nuclear_set %in% functional_order]
@@ -50,6 +51,6 @@ figure <- (panel_a | panel_b) + plot_layout(guides = "collect", widths = c(1.15,
   theme(legend.position = "bottom")
 pdf <- file.path(figure_dir, "Figure_ERC_Weaver_style_A_B_direct_indirect.pdf")
 png <- file.path(figure_dir, "Figure_ERC_Weaver_style_A_B_direct_indirect.png")
-ggsave(pdf, figure, width = 12.5, height = 6.2, device = cairo_pdf)
-ggsave(png, figure, width = 12.5, height = 6.2, dpi = 400, bg = "white")
+ggsave(pdf, figure, width = 12.5, height = 7.0, device = cairo_pdf)
+ggsave(png, figure, width = 12.5, height = 7.0, dpi = 400, bg = "white")
 cat("[OK]", pdf, "\n[OK]", png, "\n")

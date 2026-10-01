@@ -862,18 +862,18 @@ fwrite(
 # Plot theme
 # ------------------------------------------------------------
 
-theme_fig <- theme_classic(base_size = 15) +
+theme_fig <- theme_classic(base_size = 20) +
   theme(
-    axis.title = element_text(colour = "black", size = 16),
-    axis.text = element_text(colour = "black", size = 13),
+    axis.title = element_text(colour = "black", size = 22),
+    axis.text = element_text(colour = "black", size = 18),
     axis.line = element_line(colour = "black", linewidth = 0.7),
     axis.ticks = element_line(colour = "black", linewidth = 0.6),
     axis.ticks.length = grid::unit(0.16, "cm"),
-    plot.title = element_text(face = "bold", size = 18, hjust = 0),
+    plot.title = element_text(face = "bold", size = 26, hjust = 0),
     legend.title = element_blank(),
-    legend.text = element_text(size = 13),
+    legend.text = element_text(size = 18),
     legend.key.size = grid::unit(0.7, "cm"),
-    plot.caption = element_text(size = 10.5, hjust = 0, colour = "black"),
+    plot.caption = element_text(size = 13, hjust = 0, colour = "black"),
     plot.margin = margin(10, 14, 10, 12)
   )
 
@@ -937,7 +937,7 @@ PANEL_A <- ggplot(
   geom_point(
     data = A_DATA[candidate == TRUE],
     shape = 21,
-    fill = "#F4A261",
+    fill = "#D989AB",
     colour = "black",
     size = 4.5,
     stroke = 0.9
@@ -946,7 +946,7 @@ PANEL_A <- ggplot(
     data = A_DATA[candidate == TRUE],
     aes(label = gene),
     fontface = "italic",
-    size = 4.2,
+    size = 5.5,
     max.overlaps = Inf,
     min.segment.length = 0,
     segment.size = 0.4,
@@ -965,7 +965,7 @@ PANEL_A <- ggplot(
     label = stat_label,
     hjust = 0,
     vjust = 1,
-    size = 4.5
+    size = 5.5
   ) +
   coord_equal(
     xlim = lims_A,
@@ -975,8 +975,8 @@ PANEL_A <- ggplot(
   ) +
   labs(
     title = "A",
-    x = "Alaska median ΔAF",
-    y = "British Columbia median ΔAF"
+    x = expression(Alaska~median~Delta*AF),
+    y = expression(British~Columbia~median~Delta*AF)
   ) +
   theme_fig
 
@@ -1076,15 +1076,10 @@ HAS_FALLBACK <- any(
 )
 
 PANEL_B_CAPTION <- paste0(
-  "Panel B shows the ten high-effect genes identified from all 25 freshwater populations. ",
-  "Blue circles and green triangles denote Alaska and British Columbia; red outlines identify ",
-  "recently colonized populations. Purple and black solid segments denote the regional marine ",
-  "frequency and the median across all freshwater populations, respectively. Signed numbers ",
-  "report regional median ΔAF; * indicates |median ΔAF| ≥ 0.5.",
-  if (HAS_FALLBACK) paste0(
-    " † No same-direction SNP with complete coverage was available; ",
-    "the highest shared-score fallback SNP is shown."
-  ) else ""
+  "Blue circles denote established freshwater populations; orange circles denote recently colonized populations. ",
+  "Purple and black segments denote regional marine frequencies and freshwater medians, respectively. ",
+  "AK and BC identify the regional groups; * indicates |median deltaAF| >= 0.5.",
+  if (HAS_FALLBACK) " † The highest shared-score fallback SNP is shown where no same-direction SNP with complete coverage was available." else ""
 )
 
 # ------------------------------------------------------------
@@ -1115,38 +1110,9 @@ PANEL_B <- ggplot() +
     colour = MARINE_COLOR
   ) +
   geom_point(
-    data = B_LONG[population_history == "established"],
-    aes(
-      x = x_jitter,
-      y = af,
-      shape = region,
-      colour = region
-    ),
-    size = 3.1,
-    stroke = 0.35,
-    alpha = 0.62
-  ) +
-  geom_point(
-    data = B_LONG[
-      population_history == "recent" & region == "AK"
-    ],
-    aes(x = x_jitter, y = af),
-    shape = 21,
-    size = 3.8,
-    stroke = 1.0,
-    fill = REGION_COLORS[["AK"]],
-    colour = RECENT_OUTLINE
-  ) +
-  geom_point(
-    data = B_LONG[
-      population_history == "recent" & region == "BC"
-    ],
-    aes(x = x_jitter, y = af),
-    shape = 24,
-    size = 4.1,
-    stroke = 1.0,
-    fill = REGION_COLORS[["BC"]],
-    colour = RECENT_OUTLINE
+    data = B_LONG,
+    aes(x = x_jitter, y = af, colour = population_history),
+    shape = 16, size = 3.5, alpha = 0.85
   ) +
   geom_segment(
     data = B_SUM,
@@ -1161,24 +1127,13 @@ PANEL_B <- ggplot() +
     lineend = "round"
   ) +
   geom_text(
-    data = B_SUM,
-    aes(
-      x = x_position,
-      y = label_y,
-      label = delta_label,
-      vjust = label_vjust
-    ),
-    size = 3.8,
-    fontface = "bold"
-  ) +
-  geom_text(
     data = REGION_LABEL_DATA,
     aes(
       x = x_position,
       y = -0.125,
       label = region_label
     ),
-    size = 3.8,
+    size = 5.0,
     fontface = "bold",
     colour = "grey20"
   ) +
@@ -1190,16 +1145,14 @@ PANEL_B <- ggplot() +
       label = gene_label
     ),
     fontface = "italic",
-    size = 4.0,
+    size = 5.0,
     colour = "black"
   ) +
-  scale_shape_manual(
-    values = REGION_SHAPES,
-    labels = REGION_LABELS
-  ) +
   scale_colour_manual(
-    values = REGION_COLORS,
-    labels = REGION_LABELS
+    values = c(established = "#1796C4", recent = "#F4A261"),
+    breaks = c("established", "recent"),
+    labels = c("Established freshwater", "Recently colonized"),
+    drop = FALSE
   ) +
   scale_x_continuous(
     breaks = NULL,
@@ -1215,7 +1168,7 @@ PANEL_B <- ggplot() +
     title = "B",
     x = NULL,
     y = "Focal-allele frequency",
-    caption = PANEL_B_CAPTION
+    caption = paste(strwrap(PANEL_B_CAPTION, width = 115), collapse = "\n")
   ) +
   theme_fig +
   theme(
@@ -1228,9 +1181,6 @@ PANEL_B <- ggplot() +
   ) +
   guides(
     colour = guide_legend(
-      override.aes = list(size = 4, alpha = 0.9)
-    ),
-    shape = guide_legend(
       override.aes = list(size = 4, alpha = 0.9)
     )
   )

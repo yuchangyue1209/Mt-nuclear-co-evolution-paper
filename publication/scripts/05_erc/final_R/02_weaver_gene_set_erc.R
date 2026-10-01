@@ -283,6 +283,12 @@ gene_sets <- list(
     primary_class == "indirect_n-mt"
   ),
 
+  Non_nmt = genes_where(
+    primary_class == "non-n-mt"
+  ),
+
+  Genomewide_nuclear = rownames(nuclear),
+
   OXPHOS_core = genes_where(
     core_status == "nu_core"
   ),
@@ -388,23 +394,56 @@ bootstrap_erc <- function(
       replace = TRUE
     )
 
-    nuclear_composite <- composite_rate(
-      nuclear,
-      sampled_nuclear
-    )
-
-    mt_composite <- composite_rate(
-      mt,
-      sampled_mt
-    )
-
     result[iteration] <- safe_spearman(
-      nuclear_composite,
-      mt_composite
+      composite_rate(nuclear, sampled_nuclear),
+      composite_rate(mt, sampled_mt)
     )
   }
 
   result
+}
+
+bootstrap_erc_fast <- function(
+  nuclear_genes,
+  mt_genes,
+  iterations = 10000L,
+  block_size = 100L
+) {
+
+  bootstrap_composites <- function(rate_matrix, genes) {
+
+    genes <- intersect(genes, rownames(rate_matrix))
+    values <- rate_matrix[genes, , drop = FALSE]
+    finite <- is.finite(values)
+    values[!finite] <- 0
+    composites <- matrix(NA_real_, nrow = iterations, ncol = ncol(values))
+
+    for (start in seq.int(1L, iterations, by = block_size)) {
+      stop_at <- min(start + block_size - 1L, iterations)
+      block_n <- stop_at - start + 1L
+      counts <- rmultinom(
+        block_n,
+        size = nrow(values),
+        prob = rep.int(1 / nrow(values), nrow(values))
+      )
+      composites[start:stop_at, ] <-
+        crossprod(counts, values) / crossprod(counts, finite)
+    }
+
+    composites
+  }
+
+  nuclear_composites <- bootstrap_composites(nuclear, nuclear_genes)
+  mt_composites <- bootstrap_composites(mt, mt_genes)
+
+  vapply(
+    seq_len(iterations),
+    function(iteration) safe_spearman(
+      nuclear_composites[iteration, ],
+      mt_composites[iteration, ]
+    ),
+    numeric(1)
+  )
 }
 
 summarize_bootstrap <- function(
@@ -541,6 +580,16 @@ analysis_definitions <- list(
     analysis = "within_complex",
     nuclear_set = "OXPHOS_CV",
     mt_genes = mt_complexes$CV
+  ),
+  list(
+    analysis = "background_set",
+    nuclear_set = "Non_nmt",
+    mt_genes = rownames(mt)
+  ),
+  list(
+    analysis = "background_set",
+    nuclear_set = "Genomewide_nuclear",
+    mt_genes = rownames(mt)
   )
 )
 
@@ -578,11 +627,19 @@ for (index in seq_along(analysis_definitions)) {
     observed_mt
   )
 
-  bootstrap_values <- bootstrap_erc(
-    nuclear_genes,
-    mitochondrial_genes,
-    n_boot
-  )
+  bootstrap_values <- if (definition$analysis == "background_set") {
+    bootstrap_erc_fast(
+      nuclear_genes,
+      mitochondrial_genes,
+      n_boot
+    )
+  } else {
+    bootstrap_erc(
+      nuclear_genes,
+      mitochondrial_genes,
+      n_boot
+    )
+  }
 
   summary_results[[index]] <- summarize_bootstrap(
     definition$analysis,
@@ -605,13 +662,14 @@ summary_results <- rbindlist(
   fill = TRUE
 )
 
+summary_results[, bootstrap_padj_positive := NA_real_]
+
 summary_results[
-  ,
-  bootstrap_padj_positive :=
-    p.adjust(
-      bootstrap_p_positive,
-      method = "BH"
-    )
+  analysis != "background_set",
+  bootstrap_padj_positive := p.adjust(
+    bootstrap_p_positive,
+    method = "BH"
+  )
 ]
 
 bootstrap_table <- rbindlist(

@@ -30,3 +30,7 @@ Large sequencing files, BAM files, VCF files, genome assemblies, and intermediat
 Personal workstation and server paths have been replaced with generic placeholders such as `/path/to/repository`, `/path/to/workspace`, and `/path/to/data`. Users should adapt these aliases through the configuration template before running the workflows. Original server copies and the full server inventory are retained separately in the private project backup and are not part of this public release.
 
 The release includes separate workflows from paired raw reads through indexed nuclear and mitochondrial BAM files. Nuclear BAMs follow the historical Pool-seq workflow with MAPQ filtering, duplicate removal, and read-group assignment. Mitochondrial reads are mapped independently and are not deduplicated; indexed mitochondrial BAMs can subsequently be converted to mpileup and sync allele-count formats.
+
+## Current manuscript figure layout
+
+See [docs/FIGURE_REPLOTTING.md](docs/FIGURE_REPLOTTING.md) for updated plotting commands, panel mapping, color/median definitions, and watershed analysis.

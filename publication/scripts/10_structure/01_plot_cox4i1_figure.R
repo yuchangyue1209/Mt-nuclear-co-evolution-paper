@@ -125,15 +125,15 @@ group_shapes <- c(
   "British Columbia freshwater" = 16
 )
 
-theme_fig <- theme_bw(base_size = 15) +
+theme_fig <- theme_bw(base_size = 20) +
   theme(
     panel.grid.major.x = element_blank(),
     panel.grid.minor = element_blank(),
     panel.border = element_rect(color = "black", linewidth = 0.55),
-    axis.text = element_text(color = "black", face = "bold"),
-    axis.title = element_text(color = "black", face = "bold"),
+    axis.text = element_text(color = "black", face = "bold", size = 16),
+    axis.title = element_text(color = "black", face = "bold", size = 22),
     strip.background = element_rect(fill = "grey94", color = "black", linewidth = 0.55),
-    strip.text = element_text(face = "bold", size = 14),
+    strip.text = element_text(face = "bold", size = 20),
     legend.position = "bottom",
     legend.title = element_blank(),
     plot.margin = margin(5, 10, 5, 5)
@@ -160,8 +160,8 @@ pA <- ggplot(
   ) +
   theme_fig +
   theme(
-    axis.text.x = element_text(angle = 55, hjust = 1, vjust = 1),
-    legend.text = element_text(size = 12)
+    axis.text.x = element_text(size = 14, angle = 65, hjust = 1, vjust = 1),
+    legend.text = element_text(size = 16)
   )
 
 # ---------- Panel B: sequence windows ----------
@@ -218,13 +218,13 @@ make_sequence_window <- function(start, end, title) {
       color = "#D9A500",
       linewidth = 0.55
     ) +
-    geom_text(aes(label = aa, color = aa_class), family = "mono", fontface = "bold", size = 4.5) +
+    geom_text(aes(label = aa, color = aa_class), family = "mono", fontface = "bold", size = 6) +
     scale_color_manual(values = aa_cols, guide = "none") +
     scale_y_continuous(
       breaks = c(2, 1),
       labels = c(
-        "Marine A58–F124–F133",
-        "Freshwater V58–Y124–L133"
+        "Marine\nA58–F124–F133",
+        "Freshwater\nV58–Y124–L133"
       ),
       limits = c(0.55, 2.45)
     ) +
@@ -235,9 +235,9 @@ make_sequence_window <- function(start, end, title) {
       panel.grid = element_blank(),
       panel.border = element_rect(color = "black", linewidth = 0.5),
       axis.ticks.y = element_blank(),
-      axis.text.y = element_text(color = "black", face = "bold", size = 10),
-      axis.text.x = element_text(color = "grey35", size = 9),
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+      axis.text.y = element_text(color = "black", face = "bold", size = 14),
+      axis.text.x = element_text(color = "grey35", size = 14),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
       plot.margin = margin(4, 6, 4, 6)
     )
 }
@@ -260,7 +260,7 @@ pC <- ggplot() +
   annotate("rect", xmin = 1, xmax = 169, ymin = 0.42, ymax = 0.68,
            fill = "#9BC8E5", color = "black", linewidth = 0.55) +
   annotate("text", x = 85, y = 0.55, label = "COX4I1 (169 aa)",
-           size = 4.8, fontface = "bold") +
+           size = 6, fontface = "bold") +
   geom_segment(
     data = site_dt,
     aes(x = codon_position, xend = codon_position, y = 0.68, yend = 0.95, color = biological_variant),
@@ -280,7 +280,7 @@ pC <- ggplot() +
       color = biological_variant
     ),
     hjust = site_dt$label_hjust,
-    size = 4.0,
+    size = 6,
     fontface = "bold",
     lineheight = 0.9
   ) +
@@ -288,27 +288,27 @@ pC <- ggplot() +
   scale_x_continuous(limits = c(1, 169), breaks = c(1, 58, 100, 124, 133, 169)) +
   scale_y_continuous(limits = c(0.30, 1.40), expand = c(0, 0)) +
   labs(x = "Amino-acid position", y = NULL) +
-  theme_classic(base_size = 14) +
+  theme_classic(base_size = 20) +
   theme(
     axis.line.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.text.y = element_blank(),
-    axis.title.x = element_text(face = "bold"),
-    axis.text.x = element_text(color = "black", face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 22),
+    axis.text.x = element_text(color = "black", face = "bold", size = 16, angle = 45, hjust = 1),
     legend.position = "none",
     plot.margin = margin(12, 10, 4, 10)
   )
 
 combined <- pA / pB / pC +
-  plot_layout(heights = c(2.9, 1.55, 1.15)) +
+  plot_layout(heights = c(3.5, 2.1, 1)) +
   plot_annotation(tag_levels = "A") &
-  theme(plot.tag = element_text(face = "bold", size = 22))
+  theme(plot.tag = element_text(face = "bold", size = 30))
 
-pdf_file <- file.path(outdir, "Figure7_COX4I1_ABC.pdf")
-png_file <- file.path(outdir, "Figure7_COX4I1_ABC.png")
+pdf_file <- file.path(outdir, "Figure7_COX4I1_tall_largefont.pdf")
+png_file <- file.path(outdir, "Figure7_COX4I1_tall_largefont.png")
 
-ggsave(pdf_file, combined, width = 12.5, height = 14.2, device = cairo_pdf)
-ggsave(png_file, combined, width = 12.5, height = 14.2, dpi = 400, bg = "white")
+ggsave(pdf_file, combined, width = 9, height = 18, device = cairo_pdf)
+ggsave(png_file, combined, width = 9, height = 18, dpi = 400, bg = "white")
 
 cat("[OK] COX4I1 Figure 7 generated\n")
 cat("[PDF] ", pdf_file, "\n", sep = "")

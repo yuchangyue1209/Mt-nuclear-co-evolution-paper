@@ -1,23 +1,27 @@
-# Publication-style map
-# 27 stickleback populations
-# =========================
+#!/usr/bin/env Rscript
 
-library(ggplot2)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
-library(ggrepel)
-library(ggspatial)
-library(patchwork)
-library(dplyr)
+# Figure S1: sampling locations for 27 stickleback populations.
 
-out_dir <- "/work/cyu"
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+  library(ggrepel)
+  library(ggspatial)
+  library(patchwork)
+  library(rnaturalearth)
+  library(rnaturalearthdata)
+  library(sf)
+})
+
+# Set OUTPUT_DIR when running outside the repository root.
+out_dir <- Sys.getenv(
+  "OUTPUT_DIR",
+  unset = file.path("results", "FigureS1_sampling_map")
+)
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-# -------------------------
-# 1. Input data
-# -------------------------
-pop <- read.table(text = "
+pop <- read.table(
+  text = "
 Population Region n_individuals Latitude Longitude Habitat Watershed
 FG Alaska 137 61.6056 -149.2792 Freshwater 'Mat-Su valley'
 LG Alaska 138 61.577305 -149.767506 Freshwater 'Mat-Su valley'
@@ -46,15 +50,17 @@ RS Alaska 200 61.5337007 -149.266752 Marine 'Mat-Su valley'
 SC Alaska 100 60.535203 -150.831276 Recent_Colonized 'Mat-Su valley'
 LB Alaska 100 61.559183 -149.258019 Recent_Colonized 'Mat-Su valley'
 CH Alaska 100 61.2023128 -149.761914 Recent_Colonized Anchorage
-", header = TRUE)
+",
+  header = TRUE
+)
 
 pop$Habitat <- factor(
   pop$Habitat,
   levels = c("Marine", "Recent_Colonized", "Freshwater")
 )
 
-# Control the drawing order without changing the legend order. Freshwater is
-# drawn first, followed by recent populations and then marine references.
+# Draw freshwater populations first and marine references last so that marine
+# symbols remain visible where sampling locations are close.
 pop_plot <- pop %>%
   mutate(
     draw_order = match(
@@ -64,9 +70,6 @@ pop_plot <- pop %>%
   ) %>%
   arrange(draw_order)
 
-# -------------------------
-# 3. Map background
-# -------------------------
 world <- ne_countries(scale = "medium", returnclass = "sf")
 
 theme_map_pub <- theme_void(base_size = 15) +
@@ -83,25 +86,23 @@ theme_map_pub <- theme_void(base_size = 15) +
   )
 
 habitat_cols <- c(
-  "Marine" = "#F28E2B",
-  "Recent_Colonized" = "#2CA02C",
-  "Freshwater" = "#2B8CBE"
+  Marine = "#F28E2B",
+  Recent_Colonized = "#2CA02C",
+  Freshwater = "#2B8CBE"
 )
 
-hab_shapes <- c(
-  "Marine" = 24,
-  "Recent_Colonized" = 22,
-  "Freshwater" = 21
+habitat_shapes <- c(
+  Marine = 24,
+  Recent_Colonized = 22,
+  Freshwater = 21
 )
 
 habitat_labels <- c(
-  "Marine" = "Marine",
-  "Recent_Colonized" = "Recent",
-  "Freshwater" = "Freshwater"
+  Marine = "Marine",
+  Recent_Colonized = "Recent",
+  Freshwater = "Freshwater"
 )
 
-# Draw freshwater first, then recent populations, and marine populations last.
-# This keeps the marine reference visible where sampling locations are close.
 add_population_points <- function(region_name) {
   geom_point(
     data = filter(pop_plot, Region == region_name),
@@ -131,11 +132,27 @@ add_population_labels <- function(region_name) {
   )
 }
 
-# -------------------------
-# 4. Alaska inset
-# -------------------------
+add_habitat_scales <- function(plot) {
+  plot +
+    scale_fill_manual(
+      values = habitat_cols,
+      breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+      labels = habitat_labels
+    ) +
+    scale_shape_manual(
+      values = habitat_shapes,
+      breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+      labels = habitat_labels
+    )
+}
+
 map_ak <- ggplot() +
-  geom_sf(data = world, fill = "#E8E8E8", color = "#B8B8B8", linewidth = 0.25) +
+  geom_sf(
+    data = world,
+    fill = "#E8E8E8",
+    color = "#B8B8B8",
+    linewidth = 0.25
+  ) +
   add_population_points("Alaska") +
   add_population_labels("Alaska") +
   coord_sf(
@@ -153,24 +170,18 @@ map_ak <- ggplot() +
     pad_x = grid::unit(0.15, "in"),
     pad_y = grid::unit(0.15, "in")
   ) +
-  scale_fill_manual(
-    values = habitat_cols,
-    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
-    labels = habitat_labels
-  ) +
-  scale_shape_manual(
-    values = hab_shapes,
-    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
-    labels = habitat_labels
-  ) +
   labs(title = "Alaska", fill = NULL, shape = NULL) +
   theme_map_pub
 
-# -------------------------
-# 5. British Columbia inset
-# -------------------------
+map_ak <- add_habitat_scales(map_ak)
+
 map_bc <- ggplot() +
-  geom_sf(data = world, fill = "#E8E8E8", color = "#B8B8B8", linewidth = 0.25) +
+  geom_sf(
+    data = world,
+    fill = "#E8E8E8",
+    color = "#B8B8B8",
+    linewidth = 0.25
+  ) +
   add_population_points("BC") +
   add_population_labels("BC") +
   coord_sf(
@@ -188,21 +199,11 @@ map_bc <- ggplot() +
     pad_x = grid::unit(0.15, "in"),
     pad_y = grid::unit(0.15, "in")
   ) +
-  scale_fill_manual(
-    values = habitat_cols,
-    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
-    labels = habitat_labels
-  ) +
-  scale_shape_manual(
-    values = hab_shapes,
-    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
-    labels = habitat_labels
-  ) +
   labs(title = "British Columbia", fill = NULL, shape = NULL) +
   theme_map_pub
-# -------------------------
-# 6. Combine figure
-# -------------------------
+
+map_bc <- add_habitat_scales(map_bc)
+
 final_map <- map_ak + map_bc +
   plot_layout(ncol = 2, widths = c(1, 1), guides = "collect") &
   theme(
@@ -215,9 +216,6 @@ final_map <- map_ak + map_bc +
 
 print(final_map)
 
-# -------------------------
-# 7. Save output
-# -------------------------
 ggsave(
   filename = file.path(out_dir, "stickleback_sampling_map_NEE_style.pdf"),
   plot = final_map,
@@ -233,3 +231,6 @@ ggsave(
   height = 5.5,
   dpi = 600
 )
+
+message("[OK] PDF: ", file.path(out_dir, "stickleback_sampling_map_NEE_style.pdf"))
+message("[OK] PNG: ", file.path(out_dir, "stickleback_sampling_map_NEE_style.png"))

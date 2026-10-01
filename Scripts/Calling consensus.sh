@@ -50,7 +50,7 @@ done
 #!/bin/bash
 # Set input and output paths
 TRIMMED_DIR="/work/cyu/poolseq/PPalign_output/trimmed"
-MAPPED_DIR="/work/cyu/poolseq/PPalign_output//mapped"
+MAPPED_DIR="/work/cyu/poolseq/PPalign_output/mapped"
 REFERENCE="/work/cyu/chrM_index"
 
 # Create output directory (if it does not exist)

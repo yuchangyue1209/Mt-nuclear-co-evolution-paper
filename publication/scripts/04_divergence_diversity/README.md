@@ -1,3 +1,5 @@
+> Current manuscript plotting: `R/12_export_manuscript_Figure2_S2_S5.R` exports Figure 2 and S2–S5 from the archived row builders. See `../../docs/FIGURE_REPLOTTING.md` for inputs and panel mapping. Legacy A–F exports below are retained for provenance.
+
 # Genome-wide mitonuclear dN/dS and piN/piS reanalysis
 
 Clean code archive for the Kuster-style stickleback genome-wide coding-divergence,

@@ -89,6 +89,8 @@ base_theme <- theme_classic(base_size = 15) +
 # ----------------------------------------------------------
 
 functional_order <- c(
+  "Genomewide_nuclear",
+  "Non_nmt",
   "Cyto_ARS_control",
   "Cyto_ribosomal_control",
   "OXPHOS_assembly_factors",
@@ -100,6 +102,8 @@ functional_order <- c(
 )
 
 functional_labels <- c(
+  Genomewide_nuclear = "Genome-wide nuclear",
+  Non_nmt = "Non-n-mt",
   Cyto_ARS_control = "Cyto-ARS",
   Cyto_ribosomal_control = "Cyto-ribo",
   OXPHOS_assembly_factors = "OXPHOS assembly",
@@ -558,7 +562,7 @@ ggsave(
   pdf_file,
   combined_figure,
   width = 12.5,
-  height = 6.2,
+  height = 7.0,
   units = "in",
   device = cairo_pdf
 )
@@ -567,7 +571,7 @@ ggsave(
   png_file,
   combined_figure,
   width = 12.5,
-  height = 6.2,
+  height = 7.0,
   units = "in",
   dpi = 400,
   bg = "white"
@@ -578,7 +582,7 @@ ggsave(
   file.path(figure_dir, "Panel_A_functional_sets.pdf"),
   panel_a,
   width = 7,
-  height = 5.3,
+  height = 6.2,
   device = cairo_pdf
 )
 

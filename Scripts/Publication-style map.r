@@ -1,4 +1,4 @@
-Publication-style map
+# Publication-style map
 # 27 stickleback populations
 # =========================
 
@@ -7,8 +7,12 @@ library(sf)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(ggrepel)
+library(ggspatial)
 library(patchwork)
 library(dplyr)
+
+out_dir <- "/work/cyu"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # -------------------------
 # 1. Input data
@@ -40,133 +44,173 @@ LAW BC 48 50.038143 -125.577298 Freshwater 'Campbell River'
 PACH BC 53 48.838426 -125.023866 Recent_Colonized 'Bamfield peninsula'
 RS Alaska 200 61.5337007 -149.266752 Marine 'Mat-Su valley'
 SC Alaska 100 60.535203 -150.831276 Recent_Colonized 'Mat-Su valley'
-LB Alaska 100 61.559183 -149.258019 Freshwater 'Mat-Su valley'
+LB Alaska 100 61.559183 -149.258019 Recent_Colonized 'Mat-Su valley'
 CH Alaska 100 61.2023128 -149.761914 Recent_Colonized Anchorage
 ", header = TRUE)
 
 pop$Habitat <- factor(
   pop$Habitat,
-  levels = c("Marine", "Freshwater", "Recent_Colonized")
+  levels = c("Marine", "Recent_Colonized", "Freshwater")
 )
 
-# -------------------------
-# 2. Optional mtCluster
-# 如果你不想按 mtCluster 上色，可以跳过这一段
-# -------------------------
-pop <- pop %>%
+# Control the drawing order without changing the legend order. Freshwater is
+# drawn first, followed by recent populations and then marine references.
+pop_plot <- pop %>%
   mutate(
-    mtCluster = case_when(
-      Population %in% c("SR", "TL", "WK", "LB", "MUC", "SWA") ~ "C1_AK",
-      Population %in% c("PACH", "FRED", "BEA", "THE") ~ "C2_Recent",
-      Population %in% c("RS", "SAY", "SC", "CH", "ROB", "WB", "LG", "SL",
-                        "LAW", "BOOT", "JOE", "FG") ~ "C3_MarineLike",
-      Population %in% c("GOS", "PYE", "ECHO", "WT") ~ "C4_GOS",
-      Population == "AMO" ~ "AMO",
-      TRUE ~ "Other"
+    draw_order = match(
+      as.character(Habitat),
+      c("Freshwater", "Recent_Colonized", "Marine")
     )
-  )
+  ) %>%
+  arrange(draw_order)
 
 # -------------------------
 # 3. Map background
 # -------------------------
 world <- ne_countries(scale = "medium", returnclass = "sf")
 
-theme_map_pub <- theme_void(base_size = 12) +
+theme_map_pub <- theme_void(base_size = 15) +
   theme(
     text = element_text(family = "Arial"),
-    legend.position = c(0.52, 0.52),
-    legend.title = element_text(size = 11),
-    legend.text = element_text(size = 10),
-    plot.title = element_text(size = 14, face = "bold", hjust = 0),
-    plot.margin = margin(5, 5, 5, 5)
+    legend.position = "right",
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 13),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0),
+    plot.margin = margin(5, 5, 5, 5),
+    aspect.ratio = 1,
+    panel.background = element_rect(fill = "#EAF4F7", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
   )
 
-cluster_cols <- c(
-  "C1_AK" = "#4E79A7",
-  "C2_Recent" = "#59A14F",
-  "C3_MarineLike" = "#F28E2B",
-  "C4_GOS" = "#B07AA1",
-  "AMO" = "#E15759",
-  "Other" = "grey40"
+habitat_cols <- c(
+  "Marine" = "#F28E2B",
+  "Recent_Colonized" = "#2CA02C",
+  "Freshwater" = "#2B8CBE"
 )
 
 hab_shapes <- c(
   "Marine" = 24,
-  "Freshwater" = 21,
-  "Recent_Colonized" = 22
+  "Recent_Colonized" = 22,
+  "Freshwater" = 21
 )
+
+habitat_labels <- c(
+  "Marine" = "Marine",
+  "Recent_Colonized" = "Recent",
+  "Freshwater" = "Freshwater"
+)
+
+# Draw freshwater first, then recent populations, and marine populations last.
+# This keeps the marine reference visible where sampling locations are close.
+add_population_points <- function(region_name) {
+  geom_point(
+    data = filter(pop_plot, Region == region_name),
+    aes(x = Longitude, y = Latitude, fill = Habitat, shape = Habitat),
+    size = 3.8,
+    color = "black",
+    stroke = 0.4
+  )
+}
+
+add_population_labels <- function(region_name) {
+  geom_text_repel(
+    data = filter(pop, Region == region_name),
+    aes(x = Longitude, y = Latitude, label = Population),
+    seed = 2026,
+    size = 4.0,
+    max.overlaps = Inf,
+    max.time = 5,
+    max.iter = 50000,
+    force = 2,
+    force_pull = 0.15,
+    box.padding = 0.65,
+    point.padding = 0.45,
+    min.segment.length = 0,
+    segment.color = "grey45",
+    segment.linewidth = 0.25
+  )
+}
 
 # -------------------------
 # 4. Alaska inset
 # -------------------------
 map_ak <- ggplot() +
-  geom_sf(data = world, fill = "grey92", color = "grey70", linewidth = 0.25) +
-  geom_point(
-    data = filter(pop, Region == "Alaska"),
-    aes(x = Longitude, y = Latitude, fill = mtCluster, shape = Habitat),
-    size = 3.8,
-    color = "black",
-    stroke = 0.35
-  ) +
-  geom_text_repel(
-    data = filter(pop, Region == "Alaska"),
-    aes(x = Longitude, y = Latitude, label = Population),
-    size = 3.2,
-    max.overlaps = Inf,
-    box.padding = 0.35,
-    point.padding = 0.25,
-    segment.color = "grey50",
-    segment.linewidth = 0.25
-  ) +
+  geom_sf(data = world, fill = "#E8E8E8", color = "#B8B8B8", linewidth = 0.25) +
+  add_population_points("Alaska") +
+  add_population_labels("Alaska") +
   coord_sf(
     xlim = c(-152.2, -148.5),
     ylim = c(60.2, 62.0),
     expand = FALSE
   ) +
-  scale_fill_manual(values = cluster_cols) +
-  scale_shape_manual(values = hab_shapes) +
-  labs(title = "Alaska", fill = "mtDNA cluster", shape = "Habitat") +
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.25,
+    unit_category = "metric",
+    style = "bar",
+    text_cex = 0.90,
+    line_width = 0.6,
+    pad_x = grid::unit(0.15, "in"),
+    pad_y = grid::unit(0.15, "in")
+  ) +
+  scale_fill_manual(
+    values = habitat_cols,
+    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+    labels = habitat_labels
+  ) +
+  scale_shape_manual(
+    values = hab_shapes,
+    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+    labels = habitat_labels
+  ) +
+  labs(title = "Alaska", fill = NULL, shape = NULL) +
   theme_map_pub
 
 # -------------------------
 # 5. British Columbia inset
 # -------------------------
 map_bc <- ggplot() +
-  geom_sf(data = world, fill = "grey92", color = "grey70", linewidth = 0.25) +
-  geom_point(
-    data = filter(pop, Region == "BC"),
-    aes(x = Longitude, y = Latitude, fill = mtCluster, shape = Habitat),
-    size = 3.8,
-    color = "black",
-    stroke = 0.35
-  ) +
-  geom_text_repel(
-    data = filter(pop, Region == "BC"),
-    aes(x = Longitude, y = Latitude, label = Population),
-    size = 3.2,
-    max.overlaps = Inf,
-    box.padding = 0.35,
-    point.padding = 0.25,
-    segment.color = "grey50",
-    segment.linewidth = 0.25
-  ) +
+  geom_sf(data = world, fill = "#E8E8E8", color = "#B8B8B8", linewidth = 0.25) +
+  add_population_points("BC") +
+  add_population_labels("BC") +
   coord_sf(
     xlim = c(-128.8, -124.6),
     ylim = c(48.5, 51.0),
     expand = FALSE
   ) +
-  scale_fill_manual(values = cluster_cols) +
-  scale_shape_manual(values = hab_shapes) +
-  labs(title = "British Columbia", fill = "mtDNA cluster", shape = "Habitat") +
-  theme_map_pub +
-  theme(legend.position = "none")
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.25,
+    unit_category = "metric",
+    style = "bar",
+    text_cex = 0.90,
+    line_width = 0.6,
+    pad_x = grid::unit(0.15, "in"),
+    pad_y = grid::unit(0.15, "in")
+  ) +
+  scale_fill_manual(
+    values = habitat_cols,
+    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+    labels = habitat_labels
+  ) +
+  scale_shape_manual(
+    values = hab_shapes,
+    breaks = c("Marine", "Recent_Colonized", "Freshwater"),
+    labels = habitat_labels
+  ) +
+  labs(title = "British Columbia", fill = NULL, shape = NULL) +
+  theme_map_pub
 # -------------------------
 # 6. Combine figure
 # -------------------------
 final_map <- map_ak + map_bc +
-  plot_layout(ncol = 2) &
+  plot_layout(ncol = 2, widths = c(1, 1), guides = "collect") &
   theme(
-    plot.title = element_text(size = 15, face = "bold")
+    plot.title = element_text(size = 18, face = "bold"),
+    legend.position = "right",
+    legend.justification = "center",
+    legend.key = element_blank(),
+    legend.spacing.y = grid::unit(0.08, "in")
   )
 
 print(final_map)
@@ -175,17 +219,17 @@ print(final_map)
 # 7. Save output
 # -------------------------
 ggsave(
-  filename = "stickleback_sampling_map_NEE_style.pdf",
+  filename = file.path(out_dir, "stickleback_sampling_map_NEE_style.pdf"),
   plot = final_map,
-  width = 11,
+  width = 12,
   height = 5.5,
   device = cairo_pdf
 )
 
 ggsave(
-  filename = "stickleback_sampling_map_NEE_style.png",
+  filename = file.path(out_dir, "stickleback_sampling_map_NEE_style.png"),
   plot = final_map,
-  width = 11,
+  width = 12,
   height = 5.5,
   dpi = 600
 )

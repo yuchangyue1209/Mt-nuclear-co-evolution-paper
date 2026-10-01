@@ -24,6 +24,7 @@ for (column in c("primary_class", "own_role", "own_complex", "core_status")) {
 }
 annotation[primary_class %in% c("direct-n-mt", "direct_n-mt", "direct n-mt"), primary_class := "direct_n-mt"]
 annotation[primary_class %in% c("indirect-n-mt", "indirect_n-mt", "indirect n-mt"), primary_class := "indirect_n-mt"]
+annotation[primary_class %in% c("non_n_mt", "non_n-mt", "non-n-mt", "non n-mt"), primary_class := "non-n-mt"]
 
 genes <- function(role = NULL, complex = NULL, class = NULL, core = NULL) {
   keep <- rep(TRUE, nrow(annotation))
@@ -40,6 +41,7 @@ sets <- list(
   Nmt_ribosomal = genes(role = "Nmt-ribo"), Nmt_ARS = genes(role = "Nmt-ARS"),
   Cyto_ribosomal_control = genes(role = "cyto-ribo"), Cyto_ARS_control = genes(role = "cyto-ARS"),
   Direct_nmt = genes(class = "direct_n-mt"), Indirect_nmt = genes(class = "indirect_n-mt"),
+  Non_nmt = genes(class = "non-n-mt"), Genomewide_nuclear = rownames(nuclear),
   OXPHOS_core = genes(core = "nu_core"), OXPHOS_noncore = genes(core = "nu_noncore"),
   OXPHOS_CI = genes(role = "subunit", complex = "CI"),
   OXPHOS_CII = genes(role = "subunit", complex = "CII"),
@@ -52,27 +54,70 @@ mt_sets <- list(
   CII = rownames(mt), CIII = "CYTB", CIV = c("COX1", "COX2", "COX3"), CV = c("ATP6", "ATP8")
 )
 
-definitions <- data.table(
-  analysis = c(rep("functional_set", 10), "within_complex_control", rep("within_complex", 4)),
-  nuclear_set = names(sets),
-  mt_set = c(rep("all", 10), "CI", "CII", "CIII", "CIV", "CV")
+functional_names <- c(
+  "Nmt_OXPHOS_structural", "OXPHOS_assembly_factors", "Nmt_ribosomal", "Nmt_ARS",
+  "Cyto_ribosomal_control", "Cyto_ARS_control", "Direct_nmt", "Indirect_nmt",
+  "OXPHOS_core", "OXPHOS_noncore"
 )
-# Correct the final five labels to CI, CII, CIII, CIV and CV.
-definitions[11:15, mt_set := c("CI", "CII", "CIII", "CIV", "CV")]
-definitions[11:15, analysis := c("within_complex", "within_complex_control", rep("within_complex", 3))]
+complex_names <- paste0("OXPHOS_C", c("I", "II", "III", "IV", "V"))
+definitions <- rbindlist(list(
+  data.table(
+    analysis = c(rep("functional_set", 8), rep("core_status", 2)),
+    nuclear_set = functional_names,
+    mt_set = "all"
+  ),
+  data.table(
+    analysis = c("within_complex", "within_complex_control", rep("within_complex", 3)),
+    nuclear_set = complex_names,
+    mt_set = c("CI", "CII", "CIII", "CIV", "CV")
+  ),
+  data.table(
+    analysis = "background_set",
+    nuclear_set = c("Non_nmt", "Genomewide_nuclear"),
+    mt_set = "all"
+  )
+))
+
+bootstrap_composites <- function(rate_matrix, genes, iterations, block_size = 100L) {
+  genes <- intersect(genes, rownames(rate_matrix))
+  values <- rate_matrix[genes, , drop = FALSE]
+  finite <- is.finite(values)
+  values[!finite] <- 0
+  result <- matrix(NA_real_, nrow = iterations, ncol = ncol(values))
+  starts <- seq.int(1L, iterations, by = block_size)
+  for (start in starts) {
+    stop_at <- min(start + block_size - 1L, iterations)
+    block_n <- stop_at - start + 1L
+    counts <- rmultinom(block_n, size = nrow(values), prob = rep.int(1 / nrow(values), nrow(values)))
+    numerators <- crossprod(counts, values)
+    denominators <- crossprod(counts, finite)
+    result[start:stop_at, ] <- numerators / denominators
+  }
+  colnames(result) <- colnames(rate_matrix)
+  result
+}
+
+boot_one_fast <- function(nuclear_genes, mt_genes) {
+  nuclear_boot <- bootstrap_composites(nuclear, nuclear_genes, n_boot)
+  mt_boot <- bootstrap_composites(mt, mt_genes, n_boot)
+  vapply(seq_len(n_boot), function(i) safe_spearman(nuclear_boot[i, ], mt_boot[i, ]), numeric(1))
+}
 
 boot_one <- function(nuclear_genes, mt_genes) {
-  nuclear_genes <- intersect(nuclear_genes, rownames(nuclear)); mt_genes <- intersect(mt_genes, rownames(mt))
+  nuclear_genes <- intersect(nuclear_genes, rownames(nuclear))
+  mt_genes <- intersect(mt_genes, rownames(mt))
   vapply(seq_len(n_boot), function(i) safe_spearman(
     composite_rate(nuclear, sample(nuclear_genes, length(nuclear_genes), TRUE)),
-    composite_rate(mt, sample(mt_genes, length(mt_genes), TRUE))), numeric(1))
+    composite_rate(mt, sample(mt_genes, length(mt_genes), TRUE))
+  ), numeric(1))
 }
 
 summaries <- list(); bootstraps <- list()
 for (i in seq_len(nrow(definitions))) {
   d <- definitions[i]; ng <- sets[[d$nuclear_set]]; mg <- mt_sets[[d$mt_set]]
   observed <- safe_spearman(composite_rate(nuclear, ng), composite_rate(mt, mg))
-  b <- boot_one(ng, mg); finite <- b[is.finite(b)]
+  b <- if (d$analysis == "background_set") boot_one_fast(ng, mg) else boot_one(ng, mg)
+  finite <- b[is.finite(b)]
   summaries[[i]] <- data.table(analysis = d$analysis, nuclear_set = d$nuclear_set,
     nuclear_n = length(ng), mt_n = length(mg), observed_rs = observed,
     bootstrap_mean_rs = mean(finite), bootstrap_median_rs = median(finite),
@@ -82,7 +127,9 @@ for (i in seq_len(nrow(definitions))) {
     nuclear_set = d$nuclear_set, rs = b)
 }
 summary_table <- rbindlist(summaries)
-summary_table[, bootstrap_padj_positive := p.adjust(bootstrap_p_positive, "BH")]
+summary_table[, bootstrap_padj_positive := NA_real_]
+summary_table[analysis != "background_set",
+  bootstrap_padj_positive := p.adjust(bootstrap_p_positive, "BH")]
 fwrite(summary_table, file.path(erc_dir, "weaver_gene_set_erc_summary.tsv"), sep = "\t")
 fwrite(rbindlist(bootstraps), file.path(erc_dir, "weaver_gene_set_erc_bootstrap_10000.tsv.gz"), sep = "\t")
 

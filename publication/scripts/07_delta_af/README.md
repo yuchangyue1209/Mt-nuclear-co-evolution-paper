@@ -12,3 +12,7 @@ Rscript Figure5C_recent_vs_established.R <RESULTS_DIR> <PLOT_DIR>
 The saved-data replot produces A and B with large fonts, pink A candidates, blue established populations, orange recent populations, and no numeric delta-AF annotations above B. All B points are circles. Black segments are all-freshwater medians; purple segments are regional marine references. Panel C uses green filled AK and open BC circles and compares established/recent medians across the same ten candidate genes, using the unchanged shared SNPs. Its square plot and numerical summaries are written separately.
 
 The recent populations are SC, CH, LB, PACH, and FRED. Do not add LY to this set. See `../../docs/FIGURE_REPLOTTING.md` for figure mapping and interpretation limits. The numbered established-first scripts remain for provenance and do not define current primary results.
+
+## Saved Figure 5 outputs
+
+Existing figures, plotting data, statistics and run records are stored in `results/Figure5_all_populations/` within this directory (repository path: `publication/scripts/07_delta_af/results/Figure5_all_populations/`). Auxiliary recent-versus-established results are retained alongside the main Figure 5A/B outputs; their presence does not imply an additional panel in the final figure. These files were relocated without recalculating or modifying their contents.

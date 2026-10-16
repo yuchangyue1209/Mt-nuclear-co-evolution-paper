@@ -34,3 +34,5 @@ The release includes separate workflows from paired raw reads through indexed nu
 ## Current manuscript figure layout
 
 See [docs/FIGURE_REPLOTTING.md](docs/FIGURE_REPLOTTING.md) for updated plotting commands, panel mapping, color/median definitions, and watershed analysis.
+
+Figure 5 saved outputs are available under `scripts/07_delta_af/results/Figure5_all_populations/`, alongside the corresponding analysis scripts.

@@ -1,4 +1,5 @@
 #!/usr/bin/env Rscript
+# Legacy workflow: retained for provenance. For the 19-population treePC-controlled Figure 6, use 03_run_treePC_controlled_Figure6.R.
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -12,7 +13,7 @@ suppressPackageStartupMessages({
 # ============================================================
 # OXPHOS72 geography vs mt-lineage GLM
 #
-# Updated according to Jesse:
+# Analysis settings:
 #   1. Geography = latitude + longitude, not AK/BC region.
 #   2. First mt-lineage analysis = all retained populations combined.
 #   3. Region-specific mt-lineage analyses are follow-up tables only.

@@ -1,11 +1,33 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages(library(data.table))
 
 set.seed(20260810)
 
 erc_dir <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
+  "/path/to/data/genomewide_codeml/",
   "10_erc_results/mtPCG_composite_t_spearman"
 )
 
@@ -32,7 +54,7 @@ n_boot <- 10000L
 
 read_rate_matrix <- function(path, object_name) {
 
-  dat <- fread(path)
+  dat <- read_analysis_table(path)
 
   if (ncol(dat) < 3) {
     stop(object_name, " matrix has fewer than three columns")
@@ -119,7 +141,7 @@ rownames(mt) <- toupper(
 # Read annotations
 # ----------------------------------------------------------
 
-annotation <- fread(annotation_file)
+annotation <- read_analysis_table(annotation_file)
 
 annotation_id_candidates <- c(
   "nuclear_gene",
@@ -173,7 +195,7 @@ for (column_name in c(
   ]
 }
 
-# Harmonize Kuster labels
+# Harmonize mitochondrial_association labels
 annotation[
   primary_class %in% c(
     "direct-n-mt",
@@ -502,7 +524,7 @@ summarize_bootstrap <- function(
 }
 
 # ----------------------------------------------------------
-# Run Weaver-style analyses
+# Run gene-bootstrap analyses
 # ----------------------------------------------------------
 
 analysis_definitions <- list(
@@ -537,12 +559,12 @@ analysis_definitions <- list(
     mt_genes = rownames(mt)
   ),
   list(
-    analysis = "Kuster_class",
+    analysis = "mitochondrial_class",
     nuclear_set = "Direct_nmt",
     mt_genes = rownames(mt)
   ),
   list(
-    analysis = "Kuster_class",
+    analysis = "mitochondrial_class",
     nuclear_set = "Indirect_nmt",
     mt_genes = rownames(mt)
   ),
@@ -808,7 +830,7 @@ fwrite(
   summary_results,
   file.path(
     erc_dir,
-    "weaver_gene_set_erc_summary.tsv"
+    "gene_bootstrap_set_erc_summary.tsv"
   ),
   sep = "\t"
 )
@@ -817,7 +839,7 @@ fwrite(
   bootstrap_table,
   file.path(
     erc_dir,
-    "weaver_gene_set_erc_bootstrap_10000.tsv.gz"
+    "gene_bootstrap_set_erc_bootstrap_10000.tsv.gz"
   ),
   sep = "\t"
 )
@@ -826,7 +848,7 @@ fwrite(
   comparison_results,
   file.path(
     erc_dir,
-    "weaver_gene_set_erc_vs_cytoribo.tsv"
+    "gene_bootstrap_set_erc_vs_cytoribo.tsv"
   ),
   sep = "\t"
 )
@@ -835,12 +857,12 @@ fwrite(
   composite_rows,
   file.path(
     erc_dir,
-    "weaver_gene_set_branch_composites.tsv"
+    "gene_bootstrap_set_branch_composites.tsv"
   ),
   sep = "\t"
 )
 
-cat("\n\n===== Weaver-style gene-set ERC =====\n")
+cat("\n\n===== gene-bootstrap gene-set ERC =====\n")
 
 print(
   summary_results[
@@ -864,4 +886,4 @@ cat("\n===== Difference from cyto-ribosomal control =====\n")
 
 print(comparison_results)
 
-cat("\n[OK] Weaver-style ERC analysis completed.\n")
+cat("\n[OK] gene-bootstrap ERC analysis completed.\n")

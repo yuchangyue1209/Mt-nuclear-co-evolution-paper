@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 
 QA="$ROOT/06_codeml/qa/codeml_input_QA.tsv"
 OUT="$ROOT/07_codeml_genomewide"
@@ -9,7 +9,7 @@ RESULTS="$OUT/results"
 RUN_LIST="$OUT/codeml_variable_genes.txt"
 INVARIANT="$OUT/codeml_invariant_genes.tsv"
 
-WORKER="/path/to/workspace/Kuster2026_genomewide_reanalysis/07_codeml_worker.sh"
+WORKER="/path/to/workspace/genomewide_reanalysis/07_codeml_worker.sh"
 
 JOBS=${JOBS:-8}
 

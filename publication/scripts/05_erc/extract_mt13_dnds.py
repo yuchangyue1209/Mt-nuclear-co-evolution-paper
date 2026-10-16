@@ -2,7 +2,7 @@
 """Extract gene-level M0 dN, dS, and omega from the corrected mt13 mlc files."""
 import csv,re
 from pathlib import Path
-ROOT=Path("/path/to/data/genomewide_codeml_kuster/10_erc_mt13_codeml/results")
+ROOT=Path("/path/to/data/genomewide_codeml/10_erc_mt13_codeml/results")
 OUT=ROOT.parent/"mt13_M0_updated.tsv"
 GENES=["ATP6","ATP8","COX1","COX2","COX3","CYTB","ND1","ND2","ND3","ND4","ND4L","ND5","ND6"]
 CX={**{g:"CI" for g in ["ND1","ND2","ND3","ND4","ND4L","ND5","ND6"]},"CYTB":"CIII","COX1":"CIV","COX2":"CIV","COX3":"CIV","ATP6":"CV","ATP8":"CV"}

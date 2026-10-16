@@ -18,7 +18,7 @@ suppressPackageStartupMessages({
 # representative SNPs, focal alleles, gene order, offsets, labels and statistics.
 # -----------------------------------------------------------------------------
 
-MAIN_SCRIPT <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/Figure5_deltaAF_sharedSNP_final.R"
+MAIN_SCRIPT <- "/path/to/workspace/genomewide_reanalysis/Figure5_deltaAF_sharedSNP_final.R"
 
 if (!file.exists(MAIN_SCRIPT)) {
   stop("Missing final Figure 5 script: ", MAIN_SCRIPT)

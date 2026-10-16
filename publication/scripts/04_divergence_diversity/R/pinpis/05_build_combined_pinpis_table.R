@@ -1,10 +1,32 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages({
     library(data.table)
 })
 
-root <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_pinpis"
+root <- "/path/to/workspace/genomewide_reanalysis/genomewide_pinpis"
 
 nuclear_file <- file.path(
     root,
@@ -26,7 +48,7 @@ output_file <- file.path(
 
 message("[read] Nuclear gene-level table")
 
-nu <- fread(
+nu <- read_analysis_table(
     nuclear_file,
     na.strings=c("NA","NaN","")
 )
@@ -95,7 +117,7 @@ nu[
 
 message("[read] mt population-level table")
 
-mt_population <- fread(
+mt_population <- read_analysis_table(
     mt_file,
     na.strings=c("NA","NaN","")
 )
@@ -125,7 +147,7 @@ mt <- mt_population[
 
         list(
             symbol=first(symbol),
-            Kuster_class="mtDNA",
+            mitochondrial_class="mtDNA",
             eligible_populations=sum(
                 is.finite(piN) &
                 is.finite(piS)
@@ -154,7 +176,7 @@ mt <- mt_population[
 required_columns <- c(
     "gene_id",
     "symbol",
-    "Kuster_class",
+    "mitochondrial_class",
     "eligible_populations",
     "piN_mean",
     "piS_mean",

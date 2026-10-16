@@ -61,3 +61,18 @@ labels; exact n values are retained in result tables. Stars are Wilcoxon tests
 with BH correction within biological panel and metric. Panel F point display is
 subsampled and its visible range is capped at the 99th percentile, while all
 genes remain in statistical tests.
+
+## Finite-individual correction
+
+The column-map field `n_individuals` records fish per pool, not read depth or
+chromosome count. Nuclear diversity uses `2N/(2N-1)`. Mitochondrial diversity
+uses `N/(N-1)`, treating each fish as one independently sampled mitochondrial
+sequence and not interpreting mitochondrial copy number as sample size.
+Both mitochondrial diversity components receive the same correction within
+each population. Population-level piN/piS is unchanged, but population means,
+ratios of means and downstream comparisons must be regenerated.
+
+After updating the mitochondrial estimator, rerun it on the original sync
+inputs, then rerun `R/pinpis/05_build_combined_pinpis_table.R`,
+`R/pinpis/06_test_pinpis_groups.R`, and the manuscript figure exporter.
+Previously generated numerical results are not updated merely by changing code.

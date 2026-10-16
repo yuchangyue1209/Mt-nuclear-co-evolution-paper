@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CODE_ROOT="/path/to/workspace/Kuster2026_genomewide_reanalysis"
-DATA_ROOT="/path/to/data/genomewide_codeml_kuster"
+CODE_ROOT="/path/to/workspace/genomewide_reanalysis"
+DATA_ROOT="/path/to/data/genomewide_codeml"
 
 # Existing genome-wide nuclear M0 outputs (15,241 variable genes).
 NU_RESULTS="$DATA_ROOT/07_codeml_genomewide/results"

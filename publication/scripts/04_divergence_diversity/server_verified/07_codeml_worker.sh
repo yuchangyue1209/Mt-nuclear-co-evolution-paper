@@ -3,10 +3,10 @@ set -u
 
 GENE=${1:?Gene ID required}
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 PHY="$ROOT/06_codeml/phylip/${GENE}.phy"
 
-TREE="/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_erc/00_inputs/erc_master_chr21_27_unrooted_paml.tree"
+TREE="/path/to/workspace/genomewide_reanalysis/genomewide_erc/00_inputs/erc_master_chr21_27_unrooted_paml.tree"
 
 OUT="$ROOT/07_codeml_genomewide"
 DIR="$OUT/results/$GENE"

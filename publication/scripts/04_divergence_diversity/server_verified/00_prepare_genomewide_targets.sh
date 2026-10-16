@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CLASSIFICATION="/path/to/workspace/Kuster2026_genomewide_reanalysis/stickleback_mapping/stickleback_gene_classification.final.tsv"
+CLASSIFICATION="/path/to/workspace/genomewide_reanalysis/stickleback_mapping/stickleback_gene_classification.final.tsv"
 GFF3="/path/to/workspace/oxphos_from_ref_no_biomart/04_gff/stickleback_with_contact.gff3"
 REF="/path/to/workspace/stickleback_nuclear_only.fa"
 
-OUT="/path/to/data/genomewide_codeml_kuster/00_targets"
+OUT="/path/to/data/genomewide_codeml/00_targets"
 mkdir -p "$OUT"
 
 GENES="$OUT/selected_genes.txt"

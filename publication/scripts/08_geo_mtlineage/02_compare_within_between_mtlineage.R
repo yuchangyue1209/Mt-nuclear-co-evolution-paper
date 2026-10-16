@@ -1,3 +1,4 @@
+# Legacy workflow: retained for provenance. For the 19-population treePC-controlled Figure 6, use 03_run_treePC_controlled_Figure6.R.
 
 suppressPackageStartupMessages({
   library(data.table)

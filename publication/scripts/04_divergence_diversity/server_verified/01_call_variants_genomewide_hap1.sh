@@ -2,10 +2,10 @@
 set -euo pipefail
 
 REF="/path/to/workspace/stickleback_nuclear_only.fa"
-BED="/path/to/data/genomewide_codeml_kuster/00_targets_codeml_ready/stickleback_20348_canonical_cds_merged.bed"
+BED="/path/to/data/genomewide_codeml/00_targets_codeml_ready/stickleback_20348_canonical_cds_merged.bed"
 BAM_DIR="/path/to/data/nuclear_with_readgroups"
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 OUT="$ROOT/01_vcf_hap1"
 LOG="$ROOT/logs/01_call_variants"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 
 REF="/path/to/workspace/stickleback_nuclear_only.fa"
 GTF="$ROOT/00_targets_codeml_ready/stickleback_20347_unique_codeml.gtf"

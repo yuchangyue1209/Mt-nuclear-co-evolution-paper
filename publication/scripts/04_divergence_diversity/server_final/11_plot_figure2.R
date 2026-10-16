@@ -1,5 +1,27 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages({
     library(ggplot2)
     library(patchwork)
@@ -10,7 +32,7 @@ suppressPackageStartupMessages({
 ## ============================================================
 
 nuclear_file <- paste0(
-    "/path/to/data/genomewide_codeml_kuster/",
+    "/path/to/data/genomewide_codeml/",
     "07_codeml_genomewide/",
     "codeml_master_analysis.tsv"
 )
@@ -22,7 +44,7 @@ old_mt_file <- paste0(
 )
 
 outdir <- paste0(
-    "/path/to/data/genomewide_codeml_kuster/",
+    "/path/to/data/genomewide_codeml/",
     "09_figures/Figure2_complete_updated_large_fonts"
 )
 
@@ -56,7 +78,7 @@ POINT_ALPHA <- 0.65
 ALPHA_LEVEL <- 0.05
 SIGNIF_ONLY <- TRUE
 
-# Only affects displayed dots in the very large Kuster panel.
+# Only affects displayed dots in the very large mitochondrial_association panel.
 # Boxplots and tests always use all genes.
 MAX_DISPLAY_POINTS_PER_GROUP <- 1500
 
@@ -110,13 +132,13 @@ labels_core <- c(
     "nu_noncore" = "nu-noncore"
 )
 
-palette_kuster <- c(
+palette_mitochondrial_association <- c(
     "direct_n-mt"   = "#BC8984",
     "indirect_n-mt" = "#948C9D",
     "non-n-mt"      = "#AAA8A1"
 )
 
-labels_kuster <- c(
+labels_mitochondrial_association <- c(
     "direct_n-mt"   = "direct n-mt",
     "indirect_n-mt" = "indirect n-mt",
     "non-n-mt"      = "non-n-mt"
@@ -126,7 +148,7 @@ labels_kuster <- c(
 ## 4. Read new nuclear data
 ## ============================================================
 
-nu <- read.delim(
+nu <- read_analysis_delim(
     nuclear_file,
     header = TRUE,
     sep = "\t",
@@ -170,7 +192,7 @@ cat(
 ## 5. Read old mtOXPHOS M0 data
 ## ============================================================
 
-mt_raw <- read.delim(
+mt_raw <- read_analysis_delim(
     old_mt_file,
     header = TRUE,
     sep = "\t",
@@ -411,10 +433,10 @@ E_data <- rbind(
     ]
 )
 
-# ---------- Row F: Kuster three classes ----------
+# ---------- Row F: mitochondrial_association three classes ----------
 
 F_data <- data.frame(
-    group = nu$Kuster_class,
+    group = nu$mitochondrial_class,
     Complex = NA_character_,
     dN = nu$dN,
     dS = nu$dS,
@@ -1284,9 +1306,9 @@ row_F <- make_three_simple_panels(
         "indirect_n-mt",
         "non-n-mt"
     ),
-    palette_kuster,
-    labels_kuster,
-    "F_Kuster",
+    palette_mitochondrial_association,
+    labels_mitochondrial_association,
+    "F_mitochondrial_association",
     point_cap = MAX_DISPLAY_POINTS_PER_GROUP
 )
 
@@ -1416,7 +1438,7 @@ save_row(
     plot_F,
     file.path(
         outdir,
-        "Figure2F_Kuster"
+        "Figure2F_mitochondrial_association"
     )
 )
 
@@ -1535,7 +1557,7 @@ cat("Figure2B_complex.pdf\n")
 cat("Figure2C_RP.pdf\n")
 cat("Figure2D_ARS.pdf\n")
 cat("Figure2E_core_noncore.pdf\n")
-cat("Figure2F_Kuster.pdf\n")
+cat("Figure2F_mitochondrial_association.pdf\n")
 
 cat("\nCombined PDF:\n")
 cat("Figure2_combined_A_to_F.pdf\n")

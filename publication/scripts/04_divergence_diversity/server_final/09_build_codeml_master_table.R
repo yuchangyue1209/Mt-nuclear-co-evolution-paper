@@ -1,6 +1,28 @@
+
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
 options(stringsAsFactors = FALSE)
 
-root <- "/path/to/data/genomewide_codeml_kuster"
+root <- "/path/to/data/genomewide_codeml"
 
 alignment_file <- file.path(
     root,
@@ -26,7 +48,7 @@ site_file <- file.path(
 )
 
 old_label_file <- paste0(
-    "/path/to/workspace/Kuster2026_genomewide_reanalysis/",
+    "/path/to/workspace/genomewide_reanalysis/",
     "old287_vs_genomewide/",
     "old287_three_labels_codeml20347.tsv"
 )
@@ -37,27 +59,27 @@ output_file <- file.path(
     "codeml_master_analysis.tsv"
 )
 
-alignment <- read.delim(
+alignment <- read_analysis_delim(
     alignment_file,
     check.names = FALSE
 )
 
-input_qa <- read.delim(
+input_qa <- read_analysis_delim(
     input_qa_file,
     check.names = FALSE
 )
 
-result <- read.delim(
+result <- read_analysis_delim(
     result_file,
     check.names = FALSE
 )
 
-sites <- read.delim(
+sites <- read_analysis_delim(
     site_file,
     check.names = FALSE
 )
 
-old_labels <- read.delim(
+old_labels <- read_analysis_delim(
     old_label_file,
     check.names = FALSE
 )
@@ -308,12 +330,12 @@ cat(
     "\n"
 )
 
-cat("\n===== Main genes by Kuster class =====\n")
-print(table(master$Kuster_class))
+cat("\n===== Main genes by mitochondrial_association class =====\n")
+print(table(master$mitochondrial_class))
 
-cat("\n===== Kuster class x rate status =====\n")
+cat("\n===== mitochondrial_association class x rate status =====\n")
 print(table(
-    master$Kuster_class,
+    master$mitochondrial_class,
     master$rate_status
 ))
 
@@ -322,7 +344,7 @@ print(aggregate(
     cbind(
         tree_length_dN,
         tree_length_dS
-    ) ~ Kuster_class,
+    ) ~ mitochondrial_class,
     data = master,
     FUN = median,
     na.rm = TRUE
@@ -331,7 +353,7 @@ print(aggregate(
 cat("\n===== Median reliable omega: ES >= 1 =====\n")
 print(tapply(
     master$omega_ES1,
-    master$Kuster_class,
+    master$mitochondrial_class,
     median,
     na.rm = TRUE
 ))

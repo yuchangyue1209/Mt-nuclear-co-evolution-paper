@@ -7,13 +7,13 @@ suppressPackageStartupMessages({
 })
 
 erc_dir <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
+  "/path/to/data/genomewide_codeml/",
   "10_erc_results/mtPCG_composite_t_spearman"
 )
 
 figure_dir <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
-  "11_erc_figures/Figure_ERC_Weaver_style"
+  "/path/to/data/genomewide_codeml/",
+  "11_erc_figures/Figure_ERC_gene_bootstrap"
 )
 
 dir.create(
@@ -24,12 +24,12 @@ dir.create(
 
 summary_file <- file.path(
   erc_dir,
-  "weaver_gene_set_erc_summary.tsv"
+  "gene_bootstrap_set_erc_summary.tsv"
 )
 
 composite_file <- file.path(
   erc_dir,
-  "weaver_gene_set_branch_composites.tsv"
+  "gene_bootstrap_set_branch_composites.tsv"
 )
 
 loo_mt_file <- file.path(
@@ -550,12 +550,12 @@ combined_figure <- (
 
 pdf_file <- file.path(
   figure_dir,
-  "Figure_ERC_Weaver_style_A_B_direct_indirect.pdf"
+  "Figure_ERC_gene_bootstrap_A_B_direct_indirect.pdf"
 )
 
 png_file <- file.path(
   figure_dir,
-  "Figure_ERC_Weaver_style_A_B_direct_indirect.png"
+  "Figure_ERC_gene_bootstrap_A_B_direct_indirect.png"
 )
 
 ggsave(

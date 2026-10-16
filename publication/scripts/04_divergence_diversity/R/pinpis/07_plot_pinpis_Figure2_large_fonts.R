@@ -1,9 +1,31 @@
 #!/usr/bin/env Rscript
+
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
 suppressPackageStartupMessages({library(data.table);library(ggplot2);library(ggsignif);library(patchwork)})
 
-root <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_pinpis"
-dat <- fread(file.path(root,"results/genomewide_nuclear_mt13_pinpis_combined.tsv"),na.strings=c("NA","NaN",""))
-tests <- fread(file.path(root,"results/pinpis_group_tests.tsv"),na.strings=c("NA","NaN",""))
+root <- "/path/to/workspace/genomewide_reanalysis/genomewide_pinpis"
+dat <- read_analysis_table(file.path(root,"results/genomewide_nuclear_mt13_pinpis_combined.tsv"),na.strings=c("NA","NaN",""))
+tests <- read_analysis_table(file.path(root,"results/pinpis_group_tests.tsv"),na.strings=c("NA","NaN",""))
 outdir <- file.path(root,"figures/Figure2_pinpis_large_fonts");dir.create(outdir,recursive=TRUE,showWarnings=FALSE)
 
 BORDER_LWD<-0.7; AXIS_TITLE_SIZE<-30; AXIS_TEXT_SIZE<-21; N_SIZE<-6.5; STAR_SIZE<-8
@@ -12,7 +34,7 @@ pal_overall<-c(mtOXPHOS="#7FA4B2",nuOXPHOS="#BC8984",`assembly factor`="#9EAD8D"
 pal_rp<-c(`cyto-RP`="#7795A8",`Nmt-RP`="#C28C73")
 pal_ars<-c(`cyto-ARS`="#7589A9",`Nmt-ARS`="#B77D9A")
 pal_core<-c(mtOXPHOS="#7FA4B2",`nu core`="#BC8984",`nu noncore`="#B6A174")
-pal_kuster<-c(`direct_n-mt`="#BC8984",`indirect_n-mt`="#948C9D",`non-n-mt`="#AAA8A1")
+pal_mitochondrial_association<-c(`direct_n-mt`="#BC8984",`indirect_n-mt`="#948C9D",`non-n-mt`="#AAA8A1")
 
 metrics<-c(piN="piN_mean",piS="piS_mean",piN_piS="piN_piS_ratio_of_means")
 metric_lab<-list(piN=expression(pi[N]),piS=expression(pi[S]),piN_piS=expression(pi[N]/pi[S]))
@@ -36,7 +58,7 @@ panel_data<-list(
  C=list(data=dat[plot_role%in%c("cyto-RP","Nmt-RP")],var="plot_role",levels=c("cyto-RP","Nmt-RP"),labels=c(`cyto-RP`="cyto-RP",`Nmt-RP`="Nmt-RP"),pal=pal_rp,panel="C_RP"),
  D=list(data=dat[plot_role%in%c("cyto-ARS","Nmt-ARS")],var="plot_role",levels=c("cyto-ARS","Nmt-ARS"),labels=c(`cyto-ARS`="cyto-ARS",`Nmt-ARS`="Nmt-ARS"),pal=pal_ars,panel="D_ARS"),
  E=list(data=dat[!is.na(core_plot_group)],var="core_plot_group",levels=c("mtOXPHOS","nu core","nu noncore"),labels=c(mtOXPHOS="mtOXPHOS",`nu core`="nu-core",`nu noncore`="nu-noncore"),pal=pal_core,panel="E_core_status"),
- F=list(data=dat[gene_source=="nuclear" & Kuster_class%in%c("direct_n-mt","indirect_n-mt","non-n-mt")],var="Kuster_class",levels=c("direct_n-mt","indirect_n-mt","non-n-mt"),labels=c(`direct_n-mt`="direct n-mt",`indirect_n-mt`="indirect n-mt",`non-n-mt`="non-n-mt"),pal=pal_kuster,panel="F_Kuster"))
+ F=list(data=dat[gene_source=="nuclear" & mitochondrial_class%in%c("direct_n-mt","indirect_n-mt","non-n-mt")],var="mitochondrial_class",levels=c("direct_n-mt","indirect_n-mt","non-n-mt"),labels=c(`direct_n-mt`="direct n-mt",`indirect_n-mt`="indirect n-mt",`non-n-mt`="non-n-mt"),pal=pal_mitochondrial_association,panel="F_mitochondrial_association"))
 
 make_simple<-function(spec,metric,point_cap=Inf){
  value<-metrics[[metric]]; d<-copy(spec$data)[is.finite(get(value))];d[,group:=factor(get(spec$var),levels=spec$levels)];d<-d[!is.na(group)]
@@ -45,7 +67,7 @@ make_simple<-function(spec,metric,point_cap=Inf){
  st<-tests[panel==spec$panel & metric==metric_name & p_bh<.05]
  yr<-range(d[[value]],na.rm=TRUE);span<-diff(yr);if(!is.finite(span)||span==0)span<-1
  # Only the very large genome-wide panel is visually capped; statistics always use all values.
- cap<-if(spec$panel=="F_Kuster")as.numeric(quantile(d[[value]],.99,na.rm=TRUE)) else yr[2]
+ cap<-if(spec$panel=="F_mitochondrial_association")as.numeric(quantile(d[[value]],.99,na.rm=TRUE)) else yr[2]
  cap<-max(cap,background[[metric]],na.rm=TRUE)
  visible_min<-min(0,min(d[[value]],na.rm=TRUE));visible_span<-cap-visible_min
  if(!is.finite(visible_span)||visible_span<=0)visible_span<-1
@@ -96,7 +118,7 @@ rows<-list(A=make_row("A"),B=make_complex("piN")|make_complex("piS")|make_comple
            C=make_row("C"),D=make_row("D"),E=make_row("E"),F=make_row("F"))
 tag_row<-function(p,tag)p+plot_annotation(tag_levels=list(c(tag,"","")))&theme(plot.tag=element_text(size=ROW_TAG_SIZE,face="bold"))
 rows<-Map(tag_row,rows,names(rows))
-stubs<-c(A="Figure2A_pi_mt_nu_assembly",B="Figure2B_pi_complex",C="Figure2C_pi_RP",D="Figure2D_pi_ARS",E="Figure2E_pi_core_noncore",F="Figure2F_pi_Kuster")
+stubs<-c(A="Figure2A_pi_mt_nu_assembly",B="Figure2B_pi_complex",C="Figure2C_pi_RP",D="Figure2D_pi_ARS",E="Figure2E_pi_core_noncore",F="Figure2F_pi_mitochondrial_association")
 for(tag in names(rows)){
  ggsave(file.path(outdir,paste0(stubs[tag],".png")),rows[[tag]],width=21,height=8.8,dpi=300,bg="white",limitsize=FALSE)
  ggsave(file.path(outdir,paste0(stubs[tag],".pdf")),rows[[tag]],width=21,height=8.8,bg="white",limitsize=FALSE)

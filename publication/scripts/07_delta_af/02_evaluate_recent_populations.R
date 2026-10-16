@@ -14,15 +14,15 @@ suppressPackageStartupMessages({
 # -----------------------------------------------------------------------------
 
 BASE <- "/path/to/data/nu_287/q2_parallelism"
-FIG5_DIR <- file.path(BASE, "q2_deltaAF_withAMO_noLB_Jesse")
+FIG5_DIR <- file.path(BASE, "q2_deltaAF_withAMO_noLB")
 
 IN_TOP <- file.path(
   FIG5_DIR,
-  "Fig3B_sharedRepresentativeSNP.withAMO_noLB_Jesse.tsv"
+  "Fig3B_sharedRepresentativeSNP.withAMO_noLB.tsv"
 )
 IN_SUM <- file.path(
   FIG5_DIR,
-  "Fig3B_sharedSNP_regionSummary.withAMO_noLB_Jesse.tsv"
+  "Fig3B_sharedSNP_regionSummary.withAMO_noLB.tsv"
 )
 
 # Full 72-gene AF table containing all populations, including the recent ones.

@@ -1,10 +1,10 @@
 #!/usr/bin/env Rscript
 suppressPackageStartupMessages({library(data.table); library(ggplot2); library(patchwork)})
 
-erc_dir <- "/path/to/data/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman"
-figure_dir <- "/path/to/data/genomewide_codeml_kuster/11_erc_figures/Figure_ERC_Weaver_style"
+erc_dir <- "/path/to/data/genomewide_codeml/10_erc_results/mtPCG_composite_t_spearman"
+figure_dir <- "/path/to/data/genomewide_codeml/11_erc_figures/Figure_ERC_gene_bootstrap"
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
-x <- fread(file.path(erc_dir, "weaver_gene_set_erc_summary.tsv"))
+x <- fread(file.path(erc_dir, "gene_bootstrap_set_erc_summary.tsv"))
 
 red <- "#CA0029"; blue <- "#0877BA"
 base_theme <- theme_classic(base_size = 17) + theme(
@@ -49,8 +49,8 @@ panel_b <- ggplot(b, aes(bootstrap_mean_rs, label, colour = significance)) +
 
 figure <- (panel_a | panel_b) + plot_layout(guides = "collect", widths = c(1.15, 1)) &
   theme(legend.position = "bottom")
-pdf <- file.path(figure_dir, "Figure_ERC_Weaver_style_A_B_direct_indirect.pdf")
-png <- file.path(figure_dir, "Figure_ERC_Weaver_style_A_B_direct_indirect.png")
+pdf <- file.path(figure_dir, "Figure_ERC_gene_bootstrap_A_B_direct_indirect.pdf")
+png <- file.path(figure_dir, "Figure_ERC_gene_bootstrap_A_B_direct_indirect.png")
 ggsave(pdf, figure, width = 12.5, height = 7.0, device = cairo_pdf)
 ggsave(png, figure, width = 12.5, height = 7.0, dpi = 400, bg = "white")
 cat("[OK]", pdf, "\n[OK]", png, "\n")

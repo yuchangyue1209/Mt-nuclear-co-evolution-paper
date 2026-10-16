@@ -1,10 +1,32 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages({
     library(data.table)
 })
 
-root <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_pinpis"
+root <- "/path/to/workspace/genomewide_reanalysis/genomewide_pinpis"
 
 input_file <- file.path(
     root,
@@ -24,7 +46,7 @@ summary_output <- file.path(
     "pinpis_group_summaries.tsv"
 )
 
-x <- fread(
+x <- read_analysis_table(
     input_file,
     na.strings=c("NA","NaN","")
 )
@@ -362,10 +384,10 @@ add_pair(
     "nu noncore"
 )
 
-# Panel F: Kuster genome-wide classes
+# Panel F: mitochondrial_association genome-wide classes
 panel_f <- x[
     gene_source=="nuclear" &
-    Kuster_class %in% c(
+    mitochondrial_class %in% c(
         "direct_n-mt",
         "indirect_n-mt",
         "non-n-mt"
@@ -374,30 +396,30 @@ panel_f <- x[
 
 add_summary(
     panel_f,
-    "F_Kuster",
-    "Kuster_class"
+    "F_mitochondrial_association",
+    "mitochondrial_class"
 )
 
 add_pair(
     panel_f,
-    "F_Kuster",
-    "Kuster_class",
+    "F_mitochondrial_association",
+    "mitochondrial_class",
     "direct_n-mt",
     "indirect_n-mt"
 )
 
 add_pair(
     panel_f,
-    "F_Kuster",
-    "Kuster_class",
+    "F_mitochondrial_association",
+    "mitochondrial_class",
     "direct_n-mt",
     "non-n-mt"
 )
 
 add_pair(
     panel_f,
-    "F_Kuster",
-    "Kuster_class",
+    "F_mitochondrial_association",
+    "mitochondrial_class",
     "indirect_n-mt",
     "non-n-mt"
 )
@@ -493,7 +515,7 @@ print(
     ]
 )
 
-cat("\n===== Kuster comparisons =====\n")
+cat("\n===== mitochondrial_association comparisons =====\n")
 
 print(
     tests[

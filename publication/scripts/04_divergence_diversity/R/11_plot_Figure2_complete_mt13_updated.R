@@ -1,5 +1,27 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages({
   library(ggplot2)
   library(ggsignif)
@@ -7,9 +29,9 @@ suppressPackageStartupMessages({
 })
 
 ## ---------- paths ----------
-root <- "/path/to/data/genomewide_codeml_kuster"
+root <- "/path/to/data/genomewide_codeml"
 nu_file <- file.path(root, "07_codeml_genomewide/codeml_master_analysis.tsv")
-mt_file <- "/path/to/data/genomewide_codeml_kuster/10_erc_mt13_codeml/mt13_M0_updated.tsv"
+mt_file <- "/path/to/data/genomewide_codeml/10_erc_mt13_codeml/mt13_M0_updated.tsv"
 outdir <- file.path(root, "09_figures/Figure2_complete_updated_mt13_rerun")
 dir.create(outdir, recursive=TRUE, showWarnings=FALSE)
 
@@ -32,17 +54,17 @@ lab_rp <- c(`cyto-ribo`="cyto-RP", `Nmt-ribo`="Nmt-RP")
 pal_ars <- c(`cyto-ARS`="#7589A9", `Nmt-ARS`="#B77D9A")
 pal_core <- c(mt="#7FA4B2", nu_core="#BC8984", nu_noncore="#B6A174")
 lab_core <- c(mt="mtOXPHOS", nu_core="nu-core", nu_noncore="nu-noncore")
-pal_kuster <- c(`direct_n-mt`="#BC8984", `indirect_n-mt`="#948C9D", `non-n-mt`="#AAA8A1")
-lab_kuster <- c(`direct_n-mt`="direct n-mt", `indirect_n-mt`="indirect n-mt", `non-n-mt`="non-n-mt")
+pal_mitochondrial_association <- c(`direct_n-mt`="#BC8984", `indirect_n-mt`="#948C9D", `non-n-mt`="#AAA8A1")
+lab_mitochondrial_association <- c(`direct_n-mt`="direct n-mt", `indirect_n-mt`="indirect n-mt", `non-n-mt`="non-n-mt")
 
 ## ---------- data ----------
-nu <- read.delim(nu_file, check.names=FALSE)
+nu <- read_analysis_delim(nu_file, check.names=FALSE)
 nu$dN <- as.numeric(nu$tree_length_dN)
 nu$dS <- as.numeric(nu$tree_length_dS)
 nu$omega_plot <- as.numeric(nu$omega_ES1)
 stopifnot(nrow(nu) == 17965)
 
-mt0 <- read.delim(mt_file, check.names=FALSE)
+mt0 <- read_analysis_delim(mt_file, check.names=FALSE)
 mt0$role <- tolower(trimws(mt0$role))
 mt <- mt0[mt0$model == "M0" & mt0$role == "mt", ]
 mt$dN <- as.numeric(mt$dN); mt$dS <- as.numeric(mt$dS)
@@ -76,7 +98,7 @@ C <- mk(nu$own_role, NA, nu$dN, nu$dS, nu$omega_plot); C <- C[C$group %in% c("cy
 D <- mk(nu$own_role, NA, nu$dN, nu$dS, nu$omega_plot); D <- D[D$group %in% c("cyto-ARS","Nmt-ARS"),]
 core_group <- ifelse(nu$own_role=="subunit" & nu$core_status=="nu_core", "nu_core", ifelse(nu$own_role=="subunit" & nu$core_status=="nu_noncore", "nu_noncore", NA))
 E <- rbind(mt_dat, mk(core_group, nu$Complex, nu$dN, nu$dS, nu$omega_plot)[!is.na(core_group),])
-F <- mk(nu$Kuster_class, NA, nu$dN, nu$dS, nu$omega_plot)
+F <- mk(nu$mitochondrial_class, NA, nu$dN, nu$dS, nu$omega_plot)
 
 ## ---------- statistics and plotting ----------
 stars <- function(p) ifelse(p<0.001,"***",ifelse(p<0.01,"**",ifelse(p<0.05,"*","n.s.")))
@@ -150,13 +172,13 @@ rb<-lapply(c("dN","dS","omega_plot"),complex_panel); rowB<-list(plot=rb[[1]]$plo
 rowC<-make_row(C,c("cyto-ribo","Nmt-ribo"),pal_rp,lab_rp,"C_RP")
 rowD<-make_row(D,c("cyto-ARS","Nmt-ARS"),pal_ars,c(`cyto-ARS`="cyto-ARS",`Nmt-ARS`="Nmt-ARS"),"D_ARS")
 rowE<-make_row(E,c("mt","nu_core","nu_noncore"),pal_core,lab_core,"E_core")
-rowF<-make_row(F,c("direct_n-mt","indirect_n-mt","non-n-mt"),pal_kuster,lab_kuster,"F_Kuster",1500)
+rowF<-make_row(F,c("direct_n-mt","indirect_n-mt","non-n-mt"),pal_mitochondrial_association,lab_mitochondrial_association,"F_mitochondrial_association",1500)
 
 tag_row <- function(p,tag) p + plot_annotation(tag_levels=list(c(tag,"",""))) & theme(plot.tag=element_text(size=ROW_TAG_SIZE,face="bold"))
 plots <- list(A=tag_row(rowA$plot,"A"),B=tag_row(rowB$plot,"B"),C=tag_row(rowC$plot,"C"),D=tag_row(rowD$plot,"D"),E=tag_row(rowE$plot,"E"),F=tag_row(rowF$plot,"F"))
 
 for(tag in names(plots)) {
-  stub <- c(A="Figure2A_mt_nu_assembly",B="Figure2B_complex",C="Figure2C_RP",D="Figure2D_ARS",E="Figure2E_core_noncore",F="Figure2F_Kuster")[[tag]]
+  stub <- c(A="Figure2A_mt_nu_assembly",B="Figure2B_complex",C="Figure2C_RP",D="Figure2D_ARS",E="Figure2E_core_noncore",F="Figure2F_mitochondrial_association")[[tag]]
   ggsave(file.path(outdir,paste0(stub,".png")),plots[[tag]],width=21,height=8.5,dpi=300,bg="white")
   ggsave(file.path(outdir,paste0(stub,".pdf")),plots[[tag]],width=21,height=8.5,device=cairo_pdf,bg="white")
 }

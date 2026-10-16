@@ -13,7 +13,7 @@
 | Recent-population historical follow-up | Figure 5B | Implemented within the standalone Figure 5 script after the all-population analysis; recent populations are orange circles; separate regional medians are compared in panel C |
 | COX4I1 structural summary | COX4I1 figure | Final plotting script copied; model-generation commands and numerical distance table pending |
 | Mitochondrial population analyses | Figure 1 | Server script identification pending |
-| PBS and controlled mitonuclear associations | Figure 4; Figure S7 | Jesse-revised plotting and controlled-PBS scripts retrieved; path cleanup pending |
+| PBS and controlled mitonuclear associations | Figure 4; Figure S7 | Revised plotting and controlled-PBS scripts retrieved; path cleanup pending |
 | Geographic and mitochondrial-lineage GLMs | Figure 6; Figure S9 | Joint latitude/longitude and mitochondrial-lineage GLM script retrieved; path cleanup pending |
 | Nonsynonymous candidate discovery | Candidate table and protein figure | Reconstruction, prioritization, SIFT4G, and BLOSUM62 scripts retrieved; path cleanup pending |
 

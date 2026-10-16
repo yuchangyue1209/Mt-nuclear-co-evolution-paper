@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 VCF_DIR="$ROOT/01_vcf_hap1"
 CALL_ROOT="$ROOT/02_callability"
 DEPTH_DIR="$CALL_ROOT/depth"

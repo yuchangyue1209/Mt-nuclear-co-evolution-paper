@@ -1,15 +1,37 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages(library(data.table))
 
-erc_dir <- "/path/to/data/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman"
+erc_dir <- "/path/to/data/genomewide_codeml/10_erc_results/mtPCG_composite_t_spearman"
 
 input_file <- file.path(
   erc_dir,
   "erc_mtPCG_composite_annotated.tsv"
 )
 
-x <- fread(input_file)
+x <- read_analysis_table(input_file)
 
 required <- c(
   "nuclear_gene", "r", "p", "padj", "primary_class",
@@ -137,14 +159,14 @@ add_category <- function(group, category, mask) {
   )
 }
 
-# Kuster categories
+# mitochondrial_association categories
 for (category_name in c(
   "direct_n-mt",
   "indirect_n-mt",
   "non-n-mt"
 )) {
   add_category(
-    "Kuster_class",
+    "mitochondrial_class",
     category_name,
     x$primary_class_clean == category_name
   )
@@ -221,7 +243,7 @@ for (row_index in seq_len(nrow(category_rows))) {
 
   # Do not compare the background category against itself
   if (
-    current_group == "Kuster_class" &&
+    current_group == "mitochondrial_class" &&
     current_category == "non-n-mt"
   ) {
     next
@@ -311,7 +333,7 @@ for (row_index in seq_len(nrow(category_rows))) {
   current_category <- category_rows$category[row_index]
 
   if (
-    current_group == "Kuster_class" &&
+    current_group == "mitochondrial_class" &&
     current_category == "non-n-mt"
   ) {
     next

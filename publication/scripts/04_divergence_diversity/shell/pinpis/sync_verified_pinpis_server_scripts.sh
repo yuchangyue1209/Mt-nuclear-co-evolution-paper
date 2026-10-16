@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Run on the Mac. Override SERVER if needed.
 SERVER="${SERVER:-user@server}"
-REMOTE="/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_pinpis"
+REMOTE="/path/to/workspace/genomewide_reanalysis/genomewide_pinpis"
 LOCAL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 mkdir -p "$LOCAL/python/pinpis" "$LOCAL/R/pinpis"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PY="/path/to/workspace/Kuster2026_genomewide_reanalysis/05_build_gene_alignments.py"
+PY="/path/to/workspace/genomewide_reanalysis/05_build_gene_alignments.py"
 
 echo "===== Step 05 started ====="
 date

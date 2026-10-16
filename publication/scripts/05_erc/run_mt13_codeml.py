@@ -5,8 +5,8 @@ from pathlib import Path
 
 GENES = ["ATP6","ATP8","COX1","COX2","COX3","CYTB","ND1","ND2","ND3","ND4","ND4L","ND5","ND6"]
 ALIGN_DIR = Path("/path/to/data/mt_gene_tree/mt_consensus_aln")
-TREE = Path("/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_erc/00_inputs/erc_master_chr21_27_unrooted_paml.tree")
-OUT = Path("/path/to/data/genomewide_codeml_kuster/10_erc_mt13_codeml/results")
+TREE = Path("/path/to/workspace/genomewide_reanalysis/genomewide_erc/00_inputs/erc_master_chr21_27_unrooted_paml.tree")
+OUT = Path("/path/to/data/genomewide_codeml/10_erc_mt13_codeml/results")
 MT_STOPS = {"TAA","TAG","AGA","AGG"}
 
 def fasta(path):

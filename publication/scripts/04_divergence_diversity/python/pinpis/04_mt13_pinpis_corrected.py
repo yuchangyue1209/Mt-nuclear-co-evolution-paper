@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Corrected pooled piN/piS for the 13 mitochondrial protein-coding genes."""
+"""Pooled mitochondrial piN/piS with one independent haploid sequence per individual.
+
+The column-map field n_individuals is the number of fish in each pool.
+The finite-individual correction is N/(N-1); nuclear code separately uses 2N/(2N-1).
+"""
 import argparse, glob, gzip, math, os, re, sys
 from collections import defaultdict
 import pysam
@@ -24,6 +28,11 @@ def attrs(s):
    k,v=item.split("=",1); d[k]=v
  return d
 
+def haploid_pool_correction(n_individuals):
+ if n_individuals < 2:
+  raise ValueError("Mitochondrial pools require at least two individuals")
+ return n_individuals / (n_individuals - 1.0)
+
 def read_map(path):
  rows=[]
  with open(path) as h:
@@ -33,6 +42,9 @@ def read_map(path):
    if f[ix["include"]].lower()!="yes": continue
    rows.append((int(f[ix["sync_column"]]),f[ix["population"]],int(f[ix["n_individuals"]])))
  rows.sort()
+ if not rows: raise ValueError("No included populations in column map")
+ for _,name,nind in rows:
+  if nind < 2: raise ValueError(f"Invalid n_individuals for {name}: {nind}")
  return rows
 
 def models(gff, contig):
@@ -119,7 +131,7 @@ def main():
      for col,name,nind in pops:
       counts=cnt(f[2+col],m["strand"]=="-")
       if counts is None or sum(counts.values())<a.min_coverage: continue
-      pn,ps=div(counts,codon,cp,(2*nind)/(2*nind-1)); z=acc[name]
+      pn,ps=div(counts,codon,cp,haploid_pool_correction(nind)); z=acc[name]
       z[0]+=pn; z[1]+=ps; z[2]+=no; z[3]+=so; z[4]+=1
    for _,name,_ in pops:
     pn0,ps0,no,so,nsite=acc[name]; pn=pn0/no if no else None; ps=ps0/so if so else None

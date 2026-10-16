@@ -1,4 +1,5 @@
 #!/usr/bin/env Rscript
+# Legacy workflow: retained for provenance. For the 19-population treePC-controlled Figure 6, use 03_run_treePC_controlled_Figure6.R.
 suppressPackageStartupMessages({library(data.table); library(ggplot2); library(ggrepel)})
 a <- commandArgs(trailingOnly=TRUE)
 if (length(a) != 3) stop('Usage: Rscript Figure6_and_S9_largefont.R GLM_RESULTS_DIR PARALLELISM_RESULTS_TSV OUTPUT_DIR')

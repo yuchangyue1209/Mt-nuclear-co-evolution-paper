@@ -2,7 +2,7 @@
 
 # Genome-wide mitonuclear dN/dS and piN/piS reanalysis
 
-Clean code archive for the Kuster-style stickleback genome-wide coding-divergence,
+Clean code archive for the genome-wide stickleback genome-wide coding-divergence,
 standing-variation, and updated manuscript Figure 2 analyses.
 
 ## Scope
@@ -11,7 +11,7 @@ standing-variation, and updated manuscript Figure 2 analyses.
 - 20,347 codon-ready genes after excluding 79 incomplete/duplicated reference CDS models.
 - 17,965 primary genes after alignment completeness filtering.
 - 15,241 variable genes successfully analyzed by codeml; 2,724 invariant genes are restored as `dN=0`, `dS=0`, `omega=NA`.
-- Updated Figure 2 rows A–F, including core/noncore and Kuster categories.
+- Updated Figure 2 rows A–F, including core/noncore and mitochondrial_association categories.
 - 18,696 piN/piS-eligible nuclear genes; 17,918 overlap the dN/dS primary set.
 - Corrected piN/piS estimator includes strand correction and separate N/S opportunities.
 - Corrected mitochondrial piN/piS estimates for all 13 protein-coding genes.
@@ -39,7 +39,7 @@ docs/DNDS_PINPIS_WORKFLOW.md
 ```
 
 The computationally expensive server products remain under
-`/path/to/data/genomewide_codeml_kuster`. This repository contains code and small metadata only, not VCFs, masked genomes, alignments, or per-gene `mlc` files.
+`/path/to/data/genomewide_codeml`. This repository contains code and small metadata only, not VCFs, masked genomes, alignments, or per-gene `mlc` files.
 
 ## Start here
 

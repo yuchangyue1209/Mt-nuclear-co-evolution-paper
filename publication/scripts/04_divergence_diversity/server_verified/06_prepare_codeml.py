@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 
 
-ROOT = Path("/path/to/data/genomewide_codeml_kuster")
+ROOT = Path("/path/to/data/genomewide_codeml")
 
 FASTA_DIR = (
     ROOT
@@ -31,7 +31,7 @@ MAIN_LIST = (
 )
 
 TREE = Path(
-    "/path/to/workspace/Kuster2026_genomewide_reanalysis/"
+    "/path/to/workspace/genomewide_reanalysis/"
     "genomewide_erc/00_inputs/"
     "erc_master_chr21_27_unrooted_topology.nwk"
 )
@@ -188,6 +188,13 @@ def main():
             for row in reader
         }
 
+    for gene_id, row in metadata.items():
+        if "mitochondrial_class" not in row:
+            candidates = [k for k in row if k.lower().endswith("_class")]
+            if len(candidates) != 1:
+                raise ValueError(f"Missing or ambiguous mitochondrial classification for {gene_id}")
+            row["mitochondrial_class"] = row[candidates[0]]
+
     tree_text = TREE.read_text().strip()
 
     tree_tips = set(re.findall(
@@ -207,7 +214,7 @@ def main():
 
         writer.writerow([
             "gene_id",
-            "Kuster_class",
+            "mitochondrial_class",
             "n_samples",
             "alignment_nt",
             "alignment_codons",
@@ -274,7 +281,7 @@ def main():
             phylip = PHYLIP_DIR / f"{gene_id}.phy"
             write_phylip(phylip, records)
 
-            gene_class = metadata[gene_id]["Kuster_class"]
+            gene_class = metadata[gene_id]["mitochondrial_class"]
 
             writer.writerow([
                 gene_id,
@@ -342,7 +349,7 @@ def main():
 
         writer.writerow([
             "gene_id",
-            "Kuster_class",
+            "mitochondrial_class",
             "variable_codon_sites",
             "alignment_codons"
         ])

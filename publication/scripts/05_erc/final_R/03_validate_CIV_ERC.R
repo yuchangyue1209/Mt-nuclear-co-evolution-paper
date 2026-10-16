@@ -5,7 +5,7 @@ suppressPackageStartupMessages(library(data.table))
 set.seed(20260810)
 
 erc_dir <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
+  "/path/to/data/genomewide_codeml/",
   "10_erc_results/mtPCG_composite_t_spearman"
 )
 

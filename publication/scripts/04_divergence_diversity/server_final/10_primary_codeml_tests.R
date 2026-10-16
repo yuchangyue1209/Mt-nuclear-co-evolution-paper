@@ -1,13 +1,35 @@
+
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
 options(stringsAsFactors = FALSE)
 
 master_file <- paste0(
-    "/path/to/data/genomewide_codeml_kuster/",
+    "/path/to/data/genomewide_codeml/",
     "07_codeml_genomewide/",
     "codeml_master_analysis.tsv"
 )
 
 outdir <- paste0(
-    "/path/to/data/genomewide_codeml_kuster/",
+    "/path/to/data/genomewide_codeml/",
     "08_statistics"
 )
 
@@ -17,7 +39,7 @@ dir.create(
     showWarnings = FALSE
 )
 
-x <- read.delim(
+x <- read_analysis_delim(
     master_file,
     check.names = FALSE
 )
@@ -31,22 +53,22 @@ metrics <- c(
 
 comparisons <- list(
     direct_vs_non = list(
-        column = "Kuster_class",
+        column = "mitochondrial_class",
         group1 = "direct_n-mt",
         group2 = "non-n-mt",
-        family = "Kuster"
+        family = "mitochondrial_association"
     ),
     indirect_vs_non = list(
-        column = "Kuster_class",
+        column = "mitochondrial_class",
         group1 = "indirect_n-mt",
         group2 = "non-n-mt",
-        family = "Kuster"
+        family = "mitochondrial_association"
     ),
     direct_vs_indirect = list(
-        column = "Kuster_class",
+        column = "mitochondrial_class",
         group1 = "direct_n-mt",
         group2 = "indirect_n-mt",
-        family = "Kuster"
+        family = "mitochondrial_association"
     ),
     Nmt_ribo_vs_cyto_ribo = list(
         column = "own_role",

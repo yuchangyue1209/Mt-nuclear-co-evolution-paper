@@ -5,7 +5,7 @@ script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg)))
 source(file.path(script_dir, "erc_helpers.R"))
 
 set.seed(20260810)
-erc_dir <- "/path/to/data/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman"
+erc_dir <- "/path/to/data/genomewide_codeml/10_erc_results/mtPCG_composite_t_spearman"
 n_perm <- 100000L
 nuclear <- read_rate_matrix(file.path(erc_dir, "nuclear_relative_rates.tsv.gz"))
 mt <- read_rate_matrix(file.path(erc_dir, "mt13_relative_rates.tsv")); rownames(mt) <- toupper(sub("^MT[-_]", "", rownames(mt)))

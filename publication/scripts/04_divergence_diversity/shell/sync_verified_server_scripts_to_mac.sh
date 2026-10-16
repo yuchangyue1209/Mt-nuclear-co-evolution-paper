@@ -6,7 +6,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REMOTE="user@server"
-REMOTE_ROOT="/path/to/workspace/Kuster2026_genomewide_reanalysis"
+REMOTE_ROOT="/path/to/workspace/genomewide_reanalysis"
 
 mkdir -p "$HERE/server_verified"
 

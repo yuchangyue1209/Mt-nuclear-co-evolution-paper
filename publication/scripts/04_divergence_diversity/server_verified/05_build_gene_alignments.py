@@ -8,7 +8,7 @@ from itertools import zip_longest
 from pathlib import Path
 
 
-ROOT = Path("/path/to/data/genomewide_codeml_kuster")
+ROOT = Path("/path/to/data/genomewide_codeml")
 
 CDS_DIR = ROOT / "04_consensus_cds" / "canonical_cds"
 GTF = (

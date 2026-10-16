@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 suppressPackageStartupMessages(library(data.table))
 
-erc_dir <- "/path/to/data/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman"
+erc_dir <- "/path/to/data/genomewide_codeml/10_erc_results/mtPCG_composite_t_spearman"
 x <- fread(file.path(erc_dir, "erc_mtPCG_composite_annotated.tsv"))
 x[, r := as.numeric(r)]
 x <- x[is.finite(r)]
@@ -31,7 +31,7 @@ fwrite(x[r >= thresholds[["top01"]]][order(-r)],
        file.path(erc_dir, "erc_candidates_background_top01.tsv"), sep = "\t")
 
 categories <- rbindlist(list(
-  x[, .(nuclear_gene, group = "Kuster", category = class)],
+  x[, .(nuclear_gene, group = "mitochondrial_association", category = class)],
   x[!is.na(own_role), .(nuclear_gene, group = "functional_role", category = own_role)],
   x[!is.na(own_complex), .(nuclear_gene, group = "OXPHOS_complex", category = own_complex)],
   x[!is.na(core_status), .(nuclear_gene, group = "core_status", category = core_status)]

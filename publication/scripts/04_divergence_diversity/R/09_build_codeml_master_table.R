@@ -2,12 +2,12 @@
 
 options(stringsAsFactors = FALSE)
 
-root <- "/path/to/data/genomewide_codeml_kuster"
+root <- "/path/to/data/genomewide_codeml"
 alignment_file <- file.path(root, "05_gene_alignments/qa/gene_alignment_summary.with_class.tsv")
 input_qa_file <- file.path(root, "06_codeml/qa/codeml_input_QA.tsv")
 result_file <- file.path(root, "07_codeml_genomewide/codeml_results.tsv")
 site_file <- file.path(root, "07_codeml_genomewide/codeml_site_information.tsv")
-old_label_file <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/old287_vs_genomewide/old287_three_labels_codeml20347.tsv"
+old_label_file <- "/path/to/workspace/genomewide_reanalysis/old287_vs_genomewide/old287_three_labels_codeml20347.tsv"
 output_file <- file.path(root, "07_codeml_genomewide/codeml_master_analysis.tsv")
 
 read_tsv <- function(path) read.delim(path, check.names=FALSE, quote="", comment.char="")

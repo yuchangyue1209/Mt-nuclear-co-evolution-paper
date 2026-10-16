@@ -1,10 +1,32 @@
 #!/usr/bin/env Rscript
 
+# Normalize a legacy classification header by its biological contents.
+normalize_mitochondrial_class <- function(d) {
+  if (!is.data.frame(d) || "mitochondrial_class" %in% names(d)) return(d)
+  choices <- grep("_class$", names(d), value=TRUE, ignore.case=TRUE)
+  choices <- setdiff(choices, "primary_class")
+  valid <- c("direct_n-mt", "indirect_n-mt", "non-n-mt", "mtDNA",
+             "direct n-mt", "indirect n-mt", "non n-mt")
+  choices <- choices[vapply(choices, function(k) {
+    v <- unique(as.character(d[[k]])); v <- v[!is.na(v) & nzchar(v)]
+    length(v)>0L && all(v %in% valid)
+  }, logical(1))]
+  if (length(choices)>1L) stop("Ambiguous mitochondrial classification columns")
+  if (length(choices)==1L) {
+    if (inherits(d,"data.table")) data.table::setnames(d,choices,"mitochondrial_class")
+    else names(d)[names(d)==choices] <- "mitochondrial_class"
+  }
+  d
+}
+read_analysis_delim <- function(...) normalize_mitochondrial_class(utils::read.delim(...))
+read_analysis_table <- function(...) normalize_mitochondrial_class(data.table::fread(...))
+
+
 suppressPackageStartupMessages({
     library(data.table)
 })
 
-root <- "/path/to/workspace/Kuster2026_genomewide_reanalysis/genomewide_pinpis"
+root <- "/path/to/workspace/genomewide_reanalysis/genomewide_pinpis"
 
 population_file <- file.path(
     root,
@@ -19,17 +41,17 @@ output_file <- file.path(
 )
 
 chromosome_file <- paste0(
-    "/path/to/workspace/Kuster2026_genomewide_reanalysis/",
+    "/path/to/workspace/genomewide_reanalysis/",
     "genomewide_pbs/stickleback_20426_gene_spans.bed"
 )
 
 dnds_master_file <- paste0(
-    "/path/to/data/genomewide_codeml_kuster/",
+    "/path/to/data/genomewide_codeml/",
     "07_codeml_genomewide/codeml_master_analysis.tsv"
 )
 
 old_label_file <- paste0(
-    "/path/to/workspace/Kuster2026_genomewide_reanalysis/",
+    "/path/to/workspace/genomewide_reanalysis/",
     "old287_vs_genomewide/old287_three_labels_codeml20347.tsv"
 )
 
@@ -38,7 +60,7 @@ total_populations <- 27L
 
 message("[read] Population-level piN/piS")
 
-x <- fread(
+x <- read_analysis_table(
     population_file,
     na.strings=c("NA","NaN","")
 )
@@ -188,7 +210,7 @@ gene <- x[
 
         list(
             symbol=first(symbol),
-            Kuster_class=first(Kuster_class),
+            mitochondrial_class=first(mitochondrial_class),
 
             total_populations=.N,
             eligible_populations=n_eligible,
@@ -231,7 +253,7 @@ gene[
 
 message("[join] Chromosomes")
 
-bed <- fread(
+bed <- read_analysis_table(
     chromosome_file,
     header=FALSE,
     select=c(1,4)
@@ -276,7 +298,7 @@ gene[
 
 message("[join] dN/dS primary set")
 
-dnds <- fread(
+dnds <- read_analysis_table(
     dnds_master_file,
     select="gene_id"
 )
@@ -318,7 +340,7 @@ gene[
 message("[join] Original functional labels")
 
 if (file.exists(old_label_file)) {
-    old <- fread(
+    old <- read_analysis_table(
         old_label_file,
         na.strings=c("NA","")
     )
@@ -355,7 +377,7 @@ if (file.exists(old_label_file)) {
 
 setorder(
     gene,
-    Kuster_class,
+    mitochondrial_class,
     gene_id
 )
 
@@ -390,12 +412,12 @@ print(
     ]
 )
 
-cat("\n===== Main eligible genes by Kuster class =====\n")
+cat("\n===== Main eligible genes by mitochondrial_association class =====\n")
 print(
     gene[
         pinpis_main_eligible==TRUE,
         .N,
-        by=Kuster_class
+        by=mitochondrial_class
     ]
 )
 
@@ -446,7 +468,7 @@ print(
                 na.rm=TRUE
             )
         ),
-        by=Kuster_class
+        by=mitochondrial_class
     ]
 )
 
@@ -458,7 +480,7 @@ print(
         .(
             gene_id,
             symbol,
-            Kuster_class,
+            mitochondrial_class,
             chromosome
         )
     ]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/path/to/data/genomewide_codeml_kuster"
+ROOT="/path/to/data/genomewide_codeml"
 PILOT="$ROOT/06_codeml/pilot"
 LOG="$ROOT/logs/06_codeml_pilot.log"
 

@@ -17,21 +17,21 @@ suppressPackageStartupMessages({
 # ============================================================
 
 BASE <- "/path/to/data/nu_287/q2_parallelism"
-INDIR <- file.path(BASE, "q2_deltaAF_withAMO_noLB_Jesse")
+INDIR <- file.path(BASE, "q2_deltaAF_withAMO_noLB")
 OUTDIR <- file.path(INDIR, "Figure5_final_colored_panelB")
 dir.create(OUTDIR, recursive = TRUE, showWarnings = FALSE)
 
 IN_TOP <- file.path(
   INDIR,
-  "Fig3B_sharedRepresentativeSNP.withAMO_noLB_Jesse.tsv"
+  "Fig3B_sharedRepresentativeSNP.withAMO_noLB.tsv"
 )
 IN_LONG <- file.path(
   INDIR,
-  "Fig3B_sharedSNP_populationData.withAMO_noLB_Jesse.tsv.gz"
+  "Fig3B_sharedSNP_populationData.withAMO_noLB.tsv.gz"
 )
 IN_SUM <- file.path(
   INDIR,
-  "Fig3B_sharedSNP_regionSummary.withAMO_noLB_Jesse.tsv"
+  "Fig3B_sharedSNP_regionSummary.withAMO_noLB.tsv"
 )
 
 THRESHOLD <- 0.50

@@ -5,7 +5,7 @@ script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg)))
 source(file.path(script_dir, "erc_helpers.R"))
 
 set.seed(20260810)
-erc_dir <- "/path/to/data/genomewide_codeml_kuster/10_erc_results/mtPCG_composite_t_spearman"
+erc_dir <- "/path/to/data/genomewide_codeml/10_erc_results/mtPCG_composite_t_spearman"
 n_boot <- 10000L
 
 nuclear <- read_rate_matrix(file.path(erc_dir, "nuclear_relative_rates.tsv.gz"))
@@ -130,8 +130,8 @@ summary_table <- rbindlist(summaries)
 summary_table[, bootstrap_padj_positive := NA_real_]
 summary_table[analysis != "background_set",
   bootstrap_padj_positive := p.adjust(bootstrap_p_positive, "BH")]
-fwrite(summary_table, file.path(erc_dir, "weaver_gene_set_erc_summary.tsv"), sep = "\t")
-fwrite(rbindlist(bootstraps), file.path(erc_dir, "weaver_gene_set_erc_bootstrap_10000.tsv.gz"), sep = "\t")
+fwrite(summary_table, file.path(erc_dir, "gene_bootstrap_set_erc_summary.tsv"), sep = "\t")
+fwrite(rbindlist(bootstraps), file.path(erc_dir, "gene_bootstrap_set_erc_bootstrap_10000.tsv.gz"), sep = "\t")
 
 composites <- rbindlist(lapply(seq_len(nrow(definitions)), function(i) {
   d <- definitions[i]
@@ -139,6 +139,6 @@ composites <- rbindlist(lapply(seq_len(nrow(definitions)), function(i) {
     nuclear_composite_rer = composite_rate(nuclear, sets[[d$nuclear_set]]),
     mt_composite_rer = composite_rate(mt, mt_sets[[d$mt_set]]))
 }))
-fwrite(composites, file.path(erc_dir, "weaver_gene_set_branch_composites.tsv"), sep = "\t")
+fwrite(composites, file.path(erc_dir, "gene_bootstrap_set_branch_composites.tsv"), sep = "\t")
 print(summary_table)
-cat("[OK] Weaver-style gene-set ERC completed\n")
+cat("[OK] gene-bootstrap gene-set ERC completed\n")

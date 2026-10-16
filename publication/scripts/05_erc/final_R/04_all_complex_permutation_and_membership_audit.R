@@ -5,7 +5,7 @@ suppressPackageStartupMessages(library(data.table))
 set.seed(20260810)
 
 erc_dir <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
+  "/path/to/data/genomewide_codeml/",
   "10_erc_results/mtPCG_composite_t_spearman"
 )
 
@@ -25,7 +25,7 @@ erc_annotation_file <- file.path(
 )
 
 master_annotation_file <- paste0(
-  "/path/to/data/genomewide_codeml_kuster/",
+  "/path/to/data/genomewide_codeml/",
   "07_codeml_genomewide/codeml_master_analysis.tsv"
 )
 
@@ -231,7 +231,7 @@ mt_complex_genes <- list(
   ),
 
   # Complex II has no mitochondrially encoded subunit.
-  # Following Weaver, compare it with all 13 mtPCGs.
+  # For the pathway-level comparison, compare it with all 13 mtPCGs.
   CII = rownames(mt),
 
   CIII = "CYTB",

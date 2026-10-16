@@ -99,7 +99,10 @@ def read_classes(path):
         h = handle.readline().rstrip().split("\t")
         ix = {x: i for i, x in enumerate(h)}
         gi = ix.get("gene_id", 0)
-        ci = next((ix[x] for x in ("primary_class", "Kuster_class", "class") if x in ix), None)
+        ci = next((ix[x] for x in ("primary_class", "mitochondrial_class", "class") if x in ix), None)
+        if ci is None:
+            candidates = [i for name,i in ix.items() if name.lower().endswith("_class")]
+            if len(candidates) == 1: ci = candidates[0]
         si = next((ix[x] for x in ("symbol", "gene_symbol", "new_symbol", "gene_name") if x in ix), None)
         if ci is None:
             raise ValueError("Cannot find classification column")
@@ -277,7 +280,7 @@ def main():
             if rows % 10_000_000 == 0:
                 print(f"[stream] rows={rows:,} target_rows={targets:,}", file=sys.stderr)
 
-    header = ["gene_id","symbol","Kuster_class","population","piN","piS","piN_piS",
+    header = ["gene_id","symbol","mitochondrial_class","population","piN","piS","piN_piS",
               "piN_sum","piS_sum","N_opportunities","S_opportunities","callable_sites",
               "CDS_length","callable_fraction","pinpis_eligible","ratio_status"]
     with open(args.output, "w") as out:

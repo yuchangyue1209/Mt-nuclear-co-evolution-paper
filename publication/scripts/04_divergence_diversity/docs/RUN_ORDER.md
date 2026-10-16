@@ -2,7 +2,7 @@
 
 ## Upstream products already completed on the server
 
-1. Human/mouse Kuster accessions mapped to stickleback proteins.
+1. Human/mouse mitochondrial_association accessions mapped to stickleback proteins.
 2. Final classification: 20,426 genes (151 direct, 862 indirect, 19,413 non).
 3. Canonical CDS curation: 20,347 genes; 79 reference models excluded.
 4. Haploid Pool-seq variant calls: 27/27 populations.

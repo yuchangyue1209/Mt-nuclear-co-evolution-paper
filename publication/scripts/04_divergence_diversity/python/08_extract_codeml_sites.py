@@ -5,7 +5,7 @@ import csv
 import re
 from pathlib import Path
 
-ROOT = Path("/path/to/data/genomewide_codeml_kuster")
+ROOT = Path("/path/to/data/genomewide_codeml")
 RESULTS = ROOT / "07_codeml_genomewide" / "results"
 RUN_LIST = ROOT / "07_codeml_genomewide" / "codeml_variable_genes.txt"
 OUTPUT = ROOT / "07_codeml_genomewide" / "codeml_site_information.tsv"

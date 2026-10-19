@@ -5,6 +5,7 @@ import json
 from collections import Counter
 
 
+
 def records(path):
     with open(path) as handle:
         for line in handle:

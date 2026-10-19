@@ -56,3 +56,4 @@ for dir in "${dirs[@]}"; do
 done
 mv "$aggregate" "$OUT/all_populations.fasta"
 echo "Masked sequences: $OUT (historical mt_consensus is unchanged)"
+
